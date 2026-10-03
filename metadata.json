@@ -1,0 +1,7 @@
+{
+  "name": "Personance Audio Visualizer",
+  "description": "A high-performance real-time audio visualizer with multiple scenes including black holes, particles, and fractals.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

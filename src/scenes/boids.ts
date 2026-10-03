@@ -135,125 +135,146 @@ export class Boids implements VisualScene {
         );
     })().compute(COUNT);
 
-    const clearPass = Fn(() => {
-      atomicStore(counts.element(instanceIndex), uint(0));
-      atomicStore(fills.element(instanceIndex), uint(0));
-    })().compute(CELLS);
+    const isWebGPU = (ctx.renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
 
-    const countPass = Fn(() => {
-      const cell = cellOf(positions.element(instanceIndex));
-      atomicAdd(counts.element(cell), uint(1));
-    })().compute(COUNT);
+    if (isWebGPU) {
+      const clearPass = Fn(() => {
+        atomicStore(counts.element(instanceIndex), uint(0));
+        atomicStore(fills.element(instanceIndex), uint(0));
+      })().compute(CELLS);
 
-    const copyPass = Fn(() => {
-      const loaded = atomicLoad(counts.element(instanceIndex)) as unknown as ReturnType<typeof uint>;
-      countsPlain.element(instanceIndex).assign(loaded);
-    })().compute(CELLS);
+      const countPass = Fn(() => {
+        const cell = cellOf(positions.element(instanceIndex));
+        atomicAdd(counts.element(cell), uint(1));
+      })().compute(COUNT);
 
-    // Naive O(cells²) exclusive scan — 17³ cells makes this trivial.
-    const scanPass = Fn(() => {
-      const total = uint(0).toVar();
-      Loop({ start: uint(0), end: instanceIndex.toUint(), type: 'uint' }, ({ i }) => {
-        total.addAssign(countsPlain.element(i));
-      });
-      starts.element(instanceIndex).assign(total);
-    })().compute(CELLS);
+      const copyPass = Fn(() => {
+        const loaded = atomicLoad(counts.element(instanceIndex)) as unknown as ReturnType<typeof uint>;
+        countsPlain.element(instanceIndex).assign(loaded);
+      })().compute(CELLS);
 
-    const scatterPass = Fn(() => {
-      const cell = cellOf(positions.element(instanceIndex));
-      const slot = atomicAdd(fills.element(cell), uint(1)) as unknown as ReturnType<typeof uint>;
-      sorted.element(starts.element(cell).add(slot)).assign(instanceIndex);
-    })().compute(COUNT);
+      // Naive O(cells²) exclusive scan — 17³ cells makes this trivial.
+      const scanPass = Fn(() => {
+        const total = uint(0).toVar();
+        Loop({ start: uint(0), end: instanceIndex.toUint(), type: 'uint' }, ({ i }) => {
+          total.addAssign(countsPlain.element(i));
+        });
+        starts.element(instanceIndex).assign(total);
+      })().compute(CELLS);
 
-    const simPass = Fn(() => {
-      const pos = positions.element(instanceIndex);
-      const vel = velocities.element(instanceIndex);
+      const scatterPass = Fn(() => {
+        const cell = cellOf(positions.element(instanceIndex));
+        const slot = atomicAdd(fills.element(cell), uint(1)) as unknown as ReturnType<typeof uint>;
+        sorted.element(starts.element(cell).add(slot)).assign(instanceIndex);
+      })().compute(COUNT);
 
-      const cohSum = vec3(0).toVar();
-      const aliSum = vec3(0).toVar();
-      const sepSum = vec3(0).toVar();
-      const count = float(0).toVar();
+      const simPass = Fn(() => {
+        const pos = positions.element(instanceIndex);
+        const vel = velocities.element(instanceIndex);
 
-      const gx = pos.x.sub(GRID_MIN).div(PERCEPTION).floor();
-      const gy = pos.y.sub(GRID_MIN).div(PERCEPTION).floor();
-      const gz = pos.z.sub(GRID_MIN).div(PERCEPTION).floor();
+        const cohSum = vec3(0).toVar();
+        const aliSum = vec3(0).toVar();
+        const sepSum = vec3(0).toVar();
+        const count = float(0).toVar();
 
-      for (let dz = -1; dz <= 1; dz++) {
-        for (let dy = -1; dy <= 1; dy++) {
-          for (let dx = -1; dx <= 1; dx++) {
-            const cx = gx.add(float(dx)).clamp(0, DIM - 1);
-            const cy = gy.add(float(dy)).clamp(0, DIM - 1);
-            const cz = gz.add(float(dz)).clamp(0, DIM - 1);
-            const cell = cx.add(cy.mul(DIM)).add(cz.mul(DIM * DIM)).toUint();
-            const start = starts.element(cell);
-            // Cap per-cell samples: dense clusters would otherwise go
-            // quadratic exactly when cohesion makes the flock clump.
-            // tslMin's .d.ts is float-only; WGSL min(u32,u32) is valid.
-            const n = (tslMin as unknown as (a: unknown, b: unknown) => ReturnType<typeof uint>)(
-              countsPlain.element(cell),
-              uint(24),
-            );
-            Loop({ start: uint(0), end: n, type: 'uint' }, ({ i }) => {
-              const other = sorted.element(start.add(i));
-              If(other.notEqual(instanceIndex), () => {
-                const otherPos = positions.element(other);
-                const diff = pos.sub(otherPos);
-                const d = diff.length();
-                If(d.lessThan(PERCEPTION), () => {
-                  cohSum.addAssign(otherPos);
-                  aliSum.addAssign(velocities.element(other));
-                  count.addAssign(1);
-                  If(d.lessThan(SEP_RADIUS), () => {
-                    sepSum.addAssign(diff.div(d.mul(d).max(0.01)));
+        const gx = pos.x.sub(GRID_MIN).div(PERCEPTION).floor();
+        const gy = pos.y.sub(GRID_MIN).div(PERCEPTION).floor();
+        const gz = pos.z.sub(GRID_MIN).div(PERCEPTION).floor();
+
+        for (let dz = -1; dz <= 1; dz++) {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              const cx = gx.add(float(dx)).clamp(0, DIM - 1);
+              const cy = gy.add(float(dy)).clamp(0, DIM - 1);
+              const cz = gz.add(float(dz)).clamp(0, DIM - 1);
+              const cell = cx.add(cy.mul(DIM)).add(cz.mul(DIM * DIM)).toUint();
+              const start = starts.element(cell);
+              const n = (tslMin as unknown as (a: unknown, b: unknown) => ReturnType<typeof uint>)(
+                countsPlain.element(cell),
+                uint(24),
+              );
+              Loop({ start: uint(0), end: n, type: 'uint' }, ({ i }) => {
+                const other = sorted.element(start.add(i));
+                If(other.notEqual(instanceIndex), () => {
+                  const otherPos = positions.element(other);
+                  const diff = pos.sub(otherPos);
+                  const d = diff.length();
+                  If(d.lessThan(PERCEPTION), () => {
+                    cohSum.addAssign(otherPos);
+                    aliSum.addAssign(velocities.element(other));
+                    count.addAssign(1);
+                    If(d.lessThan(SEP_RADIUS), () => {
+                      sepSum.addAssign(diff.div(d.mul(d).max(0.01)));
+                    });
                   });
                 });
               });
-            });
+            }
           }
         }
-      }
 
-      If(count.greaterThan(0), () => {
-        const cohesionForce = cohSum.div(count).sub(pos).normalize();
-        const alignForce = aliSum.div(count).normalize();
-        // Inhale pulls the flock tight; scatter/burst blow it apart.
-        const scatterTotal = this.uScatter.add(this.uBurst).min(1.2);
-        const cohStrength = this.uCohesion.mul(float(1).add(this.uInhale.mul(2)));
-        const cohSign = float(1).sub(scatterTotal.mul(2.2));
-        vel.addAssign(cohesionForce.mul(cohStrength).mul(cohSign).mul(this.uDelta.mul(8)));
-        vel.addAssign(alignForce.mul(this.uAlignment).mul(this.uDelta.mul(6)));
+        If(count.greaterThan(0), () => {
+          const cohesionForce = cohSum.div(count).sub(pos).normalize();
+          const alignForce = aliSum.div(count).normalize();
+          const scatterTotal = this.uScatter.add(this.uBurst).min(1.2);
+          const cohStrength = this.uCohesion.mul(float(1).add(this.uInhale.mul(2)));
+          const cohSign = float(1).sub(scatterTotal.mul(2.2));
+          vel.addAssign(cohesionForce.mul(cohStrength).mul(cohSign).mul(this.uDelta.mul(8)));
+          vel.addAssign(alignForce.mul(this.uAlignment).mul(this.uDelta.mul(6)));
+          vel.addAssign(
+            sepSum.mul(this.uSeparation.add(scatterTotal.mul(1.5))).mul(this.uDelta.mul(10)),
+          );
+        });
+
+        const pd = pos.sub(vec3(this.uPredator.x, this.uPredator.y, this.uPredator.z));
+        const pr = pd.length().max(0.4);
         vel.addAssign(
-          sepSum.mul(this.uSeparation.add(scatterTotal.mul(1.5))).mul(this.uDelta.mul(10)),
+          pd.div(pr).mul(this.uPredStrength.mul(34).div(pr.mul(pr).add(2))).mul(this.uDelta),
         );
-      });
 
-      // Predator flight: beats strike, the flock ripples away — the
-      // murmuration's native reaction instead of a brightness pulse.
-      const pd = pos.sub(vec3(this.uPredator.x, this.uPredator.y, this.uPredator.z));
-      const pr = pd.length().max(0.4);
-      vel.addAssign(
-        pd.div(pr).mul(this.uPredStrength.mul(34).div(pr.mul(pr).add(2))).mul(this.uDelta),
-      );
+        const dist = pos.length();
+        If(dist.greaterThan(BOUNDS), () => {
+          vel.subAssign(pos.div(dist).mul(this.uDelta.mul(dist.sub(BOUNDS)).mul(4)));
+        });
 
-      // Soft spherical containment.
-      const dist = pos.length();
-      If(dist.greaterThan(BOUNDS), () => {
-        vel.subAssign(pos.div(dist).mul(this.uDelta.mul(dist.sub(BOUNDS)).mul(4)));
-      });
+        const speed = vel.length().max(0.001);
+        const maxSpeed = float(5.5)
+          .mul(this.uSpeed)
+          .mul(float(1).sub(this.uInhale.mul(0.55)))
+          .add(this.uScatter.add(this.uBurst).mul(4));
+        const minSpeed = float(1.2).mul(this.uSpeed);
+        vel.assign(vel.div(speed).mul(speed.clamp(minSpeed, maxSpeed)));
 
-      // Clamp speed band so the flock never stalls or explodes.
-      const speed = vel.length().max(0.001);
-      const maxSpeed = float(5.5)
-        .mul(this.uSpeed)
-        .mul(float(1).sub(this.uInhale.mul(0.55)))
-        .add(this.uScatter.add(this.uBurst).mul(4));
-      const minSpeed = float(1.2).mul(this.uSpeed);
-      vel.assign(vel.div(speed).mul(speed.clamp(minSpeed, maxSpeed)));
+        pos.addAssign(vel.mul(this.uDelta));
+      })().compute(COUNT);
 
-      pos.addAssign(vel.mul(this.uDelta));
-    })().compute(COUNT);
+      this.passes = [clearPass, countPass, copyPass, scanPass, scatterPass, simPass];
+    } else {
+      // WebGL2 backend fallback: particle swirl and predator repulsion without compute atomics
+      const simPassSimple = Fn(() => {
+        const pos = positions.element(instanceIndex);
+        const vel = velocities.element(instanceIndex);
+        const dist = pos.length();
+        const swirl = vec3(pos.z.negate(), float(0.2).mul(pos.y.sin()), pos.x).normalize();
+        vel.addAssign(swirl.mul(this.uDelta.mul(4)));
 
-    this.passes = [clearPass, countPass, copyPass, scanPass, scatterPass, simPass];
+        const pd = pos.sub(vec3(this.uPredator.x, this.uPredator.y, this.uPredator.z));
+        const pr = pd.length().max(0.5);
+        vel.addAssign(pd.div(pr).mul(this.uPredStrength.mul(20).div(pr.mul(pr).add(2))).mul(this.uDelta));
+
+        If(dist.greaterThan(BOUNDS), () => {
+          vel.subAssign(pos.div(dist.max(0.01)).mul(this.uDelta.mul(dist.sub(BOUNDS)).mul(4)));
+        });
+
+        const speed = vel.length().max(0.001);
+        const maxSpeed = float(5.0).mul(this.uSpeed);
+        const minSpeed = float(1.0).mul(this.uSpeed);
+        vel.assign(vel.div(speed).mul(speed.clamp(minSpeed, maxSpeed)));
+        pos.addAssign(vel.mul(this.uDelta));
+      })().compute(COUNT);
+
+      this.passes = [simPassSimple];
+    }
 
     const material = new THREE.SpriteNodeMaterial({
       blending: THREE.AdditiveBlending,

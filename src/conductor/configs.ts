@@ -97,4 +97,25 @@ export const DEFAULT_CONFIGS: Record<string, ConductorConfig> = {
       { feature: 'drop', param: 'burst', out: [0, 1], attack: 0, release: 0.02 },
     ],
   },
+  ferrofluid: {
+    pulseDecay: 5,
+    mappings: [
+      { feature: 'bass', param: 'magnetForce', out: [0.8, 2.5], curve: 'sqrt', attack: 0.03, release: 0.22 },
+      { feature: 'level', param: 'iridescence', in: [0, 0.6], out: [0.6, 2.2], attack: 0.05, release: 0.3 },
+      { feature: 'treble', param: 'fluidity', in: [0, 0.8], out: [0.7, 1.8], attack: 0.08, release: 0.35 },
+      { feature: 'centroid', param: 'coreGlow', out: [0.5, 2.0], attack: 0.2, release: 0.5 },
+      { feature: 'inhale', param: 'inhale', out: [0, 1], attack: 0, release: 0.05 },
+      { feature: 'drop', param: 'burst', out: [0, 1], attack: 0, release: 0.02 },
+    ],
+  },
+  lavalamp: {
+    pulseDecay: 4,
+    mappings: [
+      { feature: 'bass', param: 'heat', out: [0.8, 2.4], curve: 'sqrt', attack: 0.04, release: 0.3 },
+      { feature: 'centroid', param: 'viscosity', out: [0.5, 1.8], attack: 0.2, release: 0.5 },
+      { feature: 'level', param: 'glow', in: [0, 0.5], out: [0.5, 1.8], attack: 0.06, release: 0.35 },
+      { feature: 'inhale', param: 'inhale', out: [0, 1], attack: 0, release: 0.05 },
+      { feature: 'drop', param: 'burst', out: [0, 1], attack: 0, release: 0.02 },
+    ],
+  },
 };

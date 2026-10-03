@@ -1,5 +1,6 @@
 import { Vibrant } from 'node-vibrant/browser';
 import type { Emotion, Palette } from '../types/song-analysis';
+import { extractCoverArt } from './cover-extractor';
 
 /**
  * Synthetic palette for tracks without cover art. Emotions are complex —
@@ -58,97 +59,211 @@ function hslHex(h: number, s: number, l: number): string {
 }
 
 /**
- * Extract a palette from ID3v2-embedded cover art (APIC frame).
+ * Dynamically updates UI styling and CSS variables according to the track's cover palette.
+ * Intelligently adapts player dock, buttons, timeline, glowing shadows, and drawer to cover gradients.
+ */
+export function applyInterfacePalette(palette: Palette): void {
+  const root = document.documentElement;
+  const p = palette.primary || '#8a7cff';
+  const a = palette.accent || lighten(p, 0.2);
+  const s = palette.secondary || palette.accent || '#4ce0d2';
+
+  root.style.setProperty('--accent', p);
+  root.style.setProperty('--accent-bright', a);
+  root.style.setProperty('--cyan', s);
+
+  const hexToRgb = (hex: string) => {
+    const clean = hex.replace('#', '');
+    const n = parseInt(clean.length === 3 ? clean.split('').map((c) => c + c).join('') : clean, 16);
+    if (Number.isNaN(n)) return { r: 138, g: 124, b: 255 };
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  };
+
+  const pRgb = hexToRgb(p);
+  const aRgb = hexToRgb(a);
+  const sRgb = hexToRgb(s);
+
+  const pGlow = `rgba(${pRgb.r}, ${pRgb.g}, ${pRgb.b}, 0.5)`;
+  const aGlow = `rgba(${aRgb.r}, ${aRgb.g}, ${aRgb.b}, 0.4)`;
+  const sGlow = `rgba(${sRgb.r}, ${sRgb.g}, ${sRgb.b}, 0.3)`;
+
+  root.style.setProperty('--accent-glow', pGlow);
+  root.style.setProperty('--border-glass-bright', aGlow);
+  root.style.setProperty('--accent-glow-secondary', sGlow);
+  root.style.setProperty('--cover-gradient', `linear-gradient(135deg, ${p} 0%, ${a} 50%, ${s} 100%)`);
+
+  // Intelligently adapt player dock styling with ambient cover gradient
+  const playerDock = document.getElementById('player-dock');
+  if (playerDock) {
+    playerDock.style.background = `linear-gradient(135deg, rgba(${pRgb.r}, ${pRgb.g}, ${pRgb.b}, 0.16) 0%, rgba(${sRgb.r}, ${sRgb.g}, ${sRgb.b}, 0.08) 50%, rgba(8, 8, 20, 0.86) 100%)`;
+    playerDock.style.borderColor = `rgba(${aRgb.r}, ${aRgb.g}, ${aRgb.b}, 0.38)`;
+    playerDock.style.boxShadow = `0 16px 42px rgba(0, 0, 0, 0.72), 0 0 35px rgba(${pRgb.r}, ${pRgb.g}, ${pRgb.b}, 0.32), 0 0 15px rgba(${aRgb.r}, ${aRgb.g}, ${aRgb.b}, 0.2)`;
+  }
+
+  // Intelligently adapt timeline scrubber gradient
+  const timelineFill = document.getElementById('timeline-fill');
+  if (timelineFill) {
+    timelineFill.style.background = `linear-gradient(90deg, ${p} 0%, ${a} 60%, ${s} 100%)`;
+    timelineFill.style.boxShadow = `0 0 12px ${pGlow}`;
+  }
+
+  const timelineThumb = document.getElementById('timeline-thumb');
+  if (timelineThumb) {
+    timelineThumb.style.background = '#ffffff';
+    timelineThumb.style.boxShadow = `0 0 10px ${a}, 0 0 4px #ffffff`;
+  }
+
+  // Intelligently adapt vinyl disc play button glow and border
+  const playBtn = document.getElementById('dock-play-btn');
+  if (playBtn) {
+    playBtn.style.borderColor = `rgba(${aRgb.r}, ${aRgb.g}, ${aRgb.b}, 0.55)`;
+    playBtn.style.boxShadow = `0 4px 18px rgba(0, 0, 0, 0.65), 0 0 22px rgba(${pRgb.r}, ${pRgb.g}, ${pRgb.b}, 0.45)`;
+  }
+
+  // Adapt playlist drawer card if present
+  const playlistCard = document.querySelector<HTMLElement>('.playlist-card');
+  if (playlistCard) {
+    playlistCard.style.borderColor = `rgba(${aRgb.r}, ${aRgb.g}, ${aRgb.b}, 0.28)`;
+    playlistCard.style.boxShadow = `0 24px 60px rgba(0, 0, 0, 0.8), 0 0 40px rgba(${pRgb.r}, ${pRgb.g}, ${pRgb.b}, 0.18)`;
+  }
+}
+
+/**
+ * Extract a palette and album art from embedded track cover art.
  * Returns null when the file has no usable art — scenes keep defaults.
  */
 export async function extractPalette(bytes: ArrayBuffer): Promise<Palette | null> {
-  const art = extractApic(new DataView(bytes));
-  if (!art) return null;
+  const cover = extractCoverArt(bytes);
+  if (!cover) return null;
 
-  const url = URL.createObjectURL(art);
+  const colors = await extractColorsFromImage(cover.url);
+  return {
+    ...colors,
+    coverArtUrl: cover.url,
+  };
+}
+
+async function extractColorsFromImage(url: string): Promise<{
+  primary: string;
+  secondary: string;
+  accent: string;
+  background: string;
+  swatches: string[];
+}> {
+  // First try node-vibrant for rich perceptual swatches
   try {
     const v = await Vibrant.from(url).getPalette();
     const hex = (s: { hex: string } | null | undefined): string | null => s?.hex ?? null;
     const primary = hex(v.Vibrant) ?? hex(v.LightVibrant) ?? hex(v.Muted);
-    if (!primary) return null;
+    if (primary) {
+      const background = darken(hex(v.DarkMuted) ?? hex(v.DarkVibrant) ?? '#0a0a18', 0.65);
+      const secondary = hex(v.Muted) ?? hex(v.DarkVibrant) ?? primary;
+      const accent = hex(v.LightVibrant) ?? hex(v.LightMuted) ?? primary;
+      const swatches = [
+        hex(v.Vibrant),
+        hex(v.LightVibrant),
+        hex(v.Muted),
+        hex(v.LightMuted),
+        hex(v.DarkVibrant),
+        hex(v.DarkMuted),
+      ].filter((h): h is string => h !== null);
 
-    const background = darken(hex(v.DarkMuted) ?? hex(v.DarkVibrant) ?? '#0a0a18', 0.65);
-    const secondary = hex(v.Muted) ?? hex(v.DarkVibrant) ?? primary;
-    const accent = hex(v.LightVibrant) ?? hex(v.LightMuted) ?? primary;
-    const swatches = [
-      hex(v.Vibrant),
-      hex(v.LightVibrant),
-      hex(v.Muted),
-      hex(v.LightMuted),
-      hex(v.DarkVibrant),
-      hex(v.DarkMuted),
-    ].filter((h): h is string => h !== null);
-
-    return { background, primary, secondary, accent, swatches, coverArtUrl: url };
-  } catch {
-    URL.revokeObjectURL(url);
-    return null;
-  }
-}
-
-/** Minimal ID3v2.3/2.4 APIC frame reader. */
-function extractApic(view: DataView): Blob | null {
-  if (view.byteLength < 10) return null;
-  if (str(view, 0, 3) !== 'ID3') return null;
-  const version = view.getUint8(3);
-  const tagSize = syncsafe(view, 6) + 10;
-
-  let offset = 10;
-  while (offset + 10 < Math.min(tagSize, view.byteLength)) {
-    const id = str(view, offset, 4);
-    if (!/^[A-Z0-9]{4}$/.test(id)) break;
-    const frameSize =
-      version === 4 ? syncsafe(view, offset + 4) : view.getUint32(offset + 4, false);
-    if (frameSize <= 0 || offset + 10 + frameSize > view.byteLength) break;
-
-    if (id === 'APIC') {
-      let p = offset + 10;
-      const end = p + frameSize;
-      const encoding = view.getUint8(p);
-      p += 1;
-      const mimeStart = p;
-      while (p < end && view.getUint8(p) !== 0) p++;
-      const mime = str(view, mimeStart, p - mimeStart) || 'image/jpeg';
-      p += 1; // null terminator
-      p += 1; // picture type
-      // Description: UTF-16 encodings terminate with a double null.
-      if (encoding === 1 || encoding === 2) {
-        while (p + 1 < end && (view.getUint8(p) !== 0 || view.getUint8(p + 1) !== 0)) p += 2;
-        p += 2;
-      } else {
-        while (p < end && view.getUint8(p) !== 0) p++;
-        p += 1;
-      }
-      if (p >= end) return null;
-      return new Blob([view.buffer.slice(p, end) as ArrayBuffer], { type: mime });
+      return { background, primary, secondary, accent, swatches };
     }
-    offset += 10 + frameSize;
+  } catch {
+    // Vibrant failed, fallback to canvas pixel sampling
   }
-  return null;
+
+  // Canvas pixel sampling fallback
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 16;
+      canvas.height = 16;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        resolve({
+          primary: '#8a7cff',
+          secondary: '#4ce0d2',
+          accent: '#b8adff',
+          background: '#0a0a18',
+          swatches: ['#8a7cff', '#4ce0d2'],
+        });
+        return;
+      }
+      ctx.drawImage(img, 0, 0, 16, 16);
+      const data = ctx.getImageData(0, 0, 16, 16).data;
+      let rSum = 0;
+      let gSum = 0;
+      let bSum = 0;
+      let count = 0;
+      let maxSat = 0;
+      let satColor = '#8a7cff';
+
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i];
+        const g = data[i + 1];
+        const b = data[i + 2];
+        const a = data[i + 3];
+        if (a < 128) continue;
+        rSum += r;
+        gSum += g;
+        bSum += b;
+        count++;
+
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        const sat = max > 0 ? (max - min) / max : 0;
+        if (sat > maxSat && max > 60 && min < 220) {
+          maxSat = sat;
+          satColor = `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+        }
+      }
+
+      const avgR = count ? Math.round(rSum / count) : 138;
+      const avgG = count ? Math.round(gSum / count) : 124;
+      const avgB = count ? Math.round(bSum / count) : 255;
+      const avgColor = `#${((avgR << 16) | (avgG << 8) | avgB).toString(16).padStart(6, '0')}`;
+      const primary = maxSat > 0.15 ? satColor : avgColor;
+      const accent = lighten(primary, 0.25);
+      const secondary = maxSat > 0.15 ? avgColor : '#4ce0d2';
+      const background = darken(primary, 0.82);
+
+      resolve({
+        background,
+        primary,
+        secondary,
+        accent,
+        swatches: [primary, accent, secondary],
+      });
+    };
+    img.onerror = () => {
+      resolve({
+        primary: '#8a7cff',
+        secondary: '#4ce0d2',
+        accent: '#b8adff',
+        background: '#0a0a18',
+        swatches: ['#8a7cff', '#4ce0d2'],
+      });
+    };
+    img.src = url;
+  });
 }
 
-function str(view: DataView, start: number, len: number): string {
-  let s = '';
-  for (let i = 0; i < len; i++) s += String.fromCharCode(view.getUint8(start + i));
-  return s;
-}
-
-function syncsafe(view: DataView, offset: number): number {
-  return (
-    ((view.getUint8(offset) & 0x7f) << 21) |
-    ((view.getUint8(offset + 1) & 0x7f) << 14) |
-    ((view.getUint8(offset + 2) & 0x7f) << 7) |
-    (view.getUint8(offset + 3) & 0x7f)
-  );
+function lighten(hexColor: string, amount: number): string {
+  const n = parseInt(hexColor.replace('#', ''), 16);
+  if (Number.isNaN(n)) return '#b8adff';
+  const r = Math.min(255, Math.round(((n >> 16) & 0xff) + (255 - ((n >> 16) & 0xff)) * amount));
+  const g = Math.min(255, Math.round(((n >> 8) & 0xff) + (255 - ((n >> 8) & 0xff)) * amount));
+  const b = Math.min(255, Math.round((n & 0xff) + (255 - (n & 0xff)) * amount));
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
 function darken(hexColor: string, amount: number): string {
-  const n = parseInt(hexColor.slice(1), 16);
+  const n = parseInt(hexColor.replace('#', ''), 16);
+  if (Number.isNaN(n)) return '#0a0a18';
   const f = 1 - amount;
   const r = Math.round(((n >> 16) & 0xff) * f);
   const g = Math.round(((n >> 8) & 0xff) * f);

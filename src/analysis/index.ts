@@ -6,7 +6,7 @@ import type { AnalyzeRequest } from './worker';
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
 function db(): Promise<IDBPDatabase> {
-  dbPromise ??= openDB('resonance', 1, {
+  dbPromise ??= openDB('personance', 1, {
     upgrade(d) {
       d.createObjectStore('analysis');
     },

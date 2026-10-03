@@ -1,6 +1,6 @@
-# resonance
+# personance
 
-**Live: [leundai.github.io/resonance](https://leundai.github.io/resonance/)** (Chromium recommended — WebGPU)
+**Live: [leundai.github.io/personance](https://leundai.github.io/personance/)** (Chromium recommended — WebGPU)
 
 A song-aware music visualizer. Drop in a track and it *learns* it before playing — neural beat
 grid, section structure, energy arc, key/mode, valence/arousal, and a palette pulled from the
@@ -75,7 +75,7 @@ starts instantly.
 
 ```sh
 npm install
-npm run dev   # http://localhost:5197
+npm run dev   # http://localhost:3000
 ```
 
 The dev panel (backtick) is the tuning workflow: toggle "conductor drives" off, drag scene

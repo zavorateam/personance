@@ -42,7 +42,7 @@ self.onmessage = async (e: MessageEvent<AnalyzeRequest>) => {
     });
   } catch (err) {
     // Classical result stands; surface why refinement was skipped.
-    console.warn('[resonance] neural beats unavailable:', err);
+    console.warn('[personance] neural beats unavailable:', err);
     post({ stage: 'refined', analysis });
   }
 };

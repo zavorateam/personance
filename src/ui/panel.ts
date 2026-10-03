@@ -21,15 +21,23 @@ export class DevPanel {
 
   /** LLM director settings — key persists in localStorage. */
   readonly director = {
-    apiKey: localStorage.getItem('resonance.anthropicKey') ?? '',
-    enabled: localStorage.getItem('resonance.directorEnabled') === 'true',
-    model: localStorage.getItem('resonance.directorModel') ?? 'claude-haiku-4-5-20251001',
+    apiKey:
+      localStorage.getItem('personance.anthropicKey') ??
+      localStorage.getItem('resonance.anthropicKey') ??
+      '',
+    enabled:
+      (localStorage.getItem('personance.directorEnabled') ??
+        localStorage.getItem('resonance.directorEnabled')) === 'true',
+    model:
+      localStorage.getItem('personance.directorModel') ??
+      localStorage.getItem('resonance.directorModel') ??
+      'claude-haiku-4-5-20251001',
     status: 'idle',
     rationale: '—',
   };
 
   constructor(manager: SceneManager) {
-    this.pane = new Pane({ title: 'resonance' });
+    this.pane = new Pane({ title: 'personance' });
     this.pane.hidden = true;
 
     this.pane.addBinding(this.monitor, 'fps', {
@@ -87,10 +95,10 @@ export class DevPanel {
     const director = this.pane.addFolder({ title: 'director (LLM)', expanded: false });
     director
       .addBinding(this.director, 'apiKey', { label: 'anthropic key' })
-      .on('change', (e) => localStorage.setItem('resonance.anthropicKey', e.value));
+      .on('change', (e) => localStorage.setItem('personance.anthropicKey', e.value));
     director
       .addBinding(this.director, 'enabled')
-      .on('change', (e) => localStorage.setItem('resonance.directorEnabled', String(e.value)));
+      .on('change', (e) => localStorage.setItem('personance.directorEnabled', String(e.value)));
     director
       .addBinding(this.director, 'model', {
         options: {
@@ -98,7 +106,7 @@ export class DevPanel {
           'sonnet 4.6': 'claude-sonnet-4-6',
         },
       })
-      .on('change', (e) => localStorage.setItem('resonance.directorModel', e.value));
+      .on('change', (e) => localStorage.setItem('personance.directorModel', e.value));
     director.addBinding(this.director, 'status', { readonly: true });
     director.addBinding(this.director, 'rationale', {
       readonly: true,
@@ -114,10 +122,19 @@ export class DevPanel {
       this.pane.refresh();
       this.syncing = false;
     };
+  }
 
-    window.addEventListener('keydown', (e) => {
-      if (e.key === '`') this.pane.hidden = !this.pane.hidden;
-    });
+  toggle(): boolean {
+    this.pane.hidden = !this.pane.hidden;
+    return !this.pane.hidden;
+  }
+
+  get isHidden(): boolean {
+    return this.pane.hidden;
+  }
+
+  setHidden(hidden: boolean): void {
+    this.pane.hidden = hidden;
   }
 
   private sceneBindings: { obj: Record<string, number>; name: string; api: { disabled: boolean } }[] = [];

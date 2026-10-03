@@ -35,8 +35,9 @@ export class FilePlayer implements AudioFeatureProvider {
     this.analyser.fftSize = 2048;
     this.analyser.smoothingTimeConstant = 0.65;
     this.gainNode = this.ctx.createGain();
-    this.gainNode.connect(this.analyser);
-    this.analyser.connect(this.ctx.destination);
+    this.gainNode.gain.value = 1.0;
+    this.analyser.connect(this.gainNode);
+    this.gainNode.connect(this.ctx.destination);
     this.freqData = new Uint8Array(this.analyser.frequencyBinCount);
     this.spectrumOut = new Float32Array(this.analyser.frequencyBinCount);
   }
@@ -75,7 +76,7 @@ export class FilePlayer implements AudioFeatureProvider {
     await this.ctx.resume();
     this.source = this.ctx.createBufferSource();
     this.source.buffer = this.buffer;
-    this.source.connect(this.gainNode);
+    this.source.connect(this.analyser);
     this.source.onended = () => {
       if (this.playing && this.currentTime >= this.duration - 0.05) {
         this.playing = false;
@@ -86,6 +87,15 @@ export class FilePlayer implements AudioFeatureProvider {
     this.startedAt = this.ctx.currentTime;
     this.source.start(0, this.offsetSec);
     this.playing = true;
+  }
+
+  setVolume(vol: number): void {
+    const v = Math.max(0, Math.min(1, vol));
+    this.gainNode.gain.setValueAtTime(v, this.ctx.currentTime);
+  }
+
+  get volume(): number {
+    return this.gainNode.gain.value;
   }
 
   pause(): void {

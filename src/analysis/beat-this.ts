@@ -10,7 +10,7 @@ import { MEL_FPS, logMelSpectrogram } from './mel';
 
 const MODEL_URL =
   'https://raw.githubusercontent.com/mosynthkey/beat_this_cpp/main/onnx/beat_this.onnx';
-const CACHE_NAME = 'resonance-models';
+const CACHE_NAME = 'personance-models';
 // 30 s chunks with 6 s overlap, interior halves stitched.
 const CHUNK = 1500;
 const OVERLAP = 300;
