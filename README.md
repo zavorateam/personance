@@ -1,7 +1,5 @@
 # personance
 
-**Live: [leundai.github.io/personance](https://leundai.github.io/personance/)** (Chromium recommended — WebGPU)
-
 A song-aware music visualizer. Drop in a track and it *learns* it before playing — neural beat
 grid, section structure, energy arc, key/mode, valence/arousal, and a palette pulled from the
 cover art — then choreographs mathematical art to it: the visuals inhale in the last bar before
@@ -63,13 +61,6 @@ Everything runs client-side. Analysis results cache in IndexedDB by content hash
 - `src/audio/` — one **FrameFeatures** bus; `FilePlayer` (pre-analyzed, with beat lookahead) and `LiveProvider` (realtime flux onsets + adaptive normalization) are interchangeable
 - `src/conductor/` — feature→parameter mappings as *data* (range/curve/attack/release) + derived signals; the director emits configs into this layer
 - `src/scenes/` — each scene declares typed params; the conductor (or your sliders) drives them
-
-## Demo track
-
-The one-click demo plays **"Adventures" by [A Himitsu](https://www.youtube.com/channel/UCgFwu-j5-xNJml2FtTrrB3A)**
-(Creative Commons — Attribution 3.0 Unported — CC BY 3.0, released by
-[Argofox](https://youtu.be/8BXNwnxaVQE)), shipped with a precomputed neural analysis so it
-starts instantly.
 
 ## Run locally
 
