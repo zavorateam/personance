@@ -414,8 +414,11 @@ async function boot(): Promise<void> {
   }
 
   function handleViewportResize(): void {
-    const w = window.visualViewport?.width ?? window.innerWidth;
-    const h = window.visualViewport?.height ?? window.innerHeight;
+    const vv = window.visualViewport;
+    const w = vv?.width ?? window.innerWidth;
+    const h = vv?.height ?? window.innerHeight;
+    const vvBottomInset = vv ? Math.max(0, window.innerHeight - (vv.offsetTop + vv.height)) : 0;
+    document.documentElement.style.setProperty('--vv-bottom-inset', `${Math.round(vvBottomInset)}px`);
     const aspect = w / Math.max(1, h);
     camera.fov = aspect < 0.85 ? 70 : 60;
     camera.aspect = aspect;
@@ -424,9 +427,11 @@ async function boot(): Promise<void> {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, nowMobile ? 1.5 : 2));
     renderer.setSize(w, h);
   }
+  handleViewportResize();
   window.addEventListener('resize', handleViewportResize);
   window.addEventListener('orientationchange', () => setTimeout(handleViewportResize, 120));
   window.visualViewport?.addEventListener('resize', handleViewportResize);
+  window.visualViewport?.addEventListener('scroll', handleViewportResize);
 
   let currentTrackId: string | null = 'demo-track-adventures';
 

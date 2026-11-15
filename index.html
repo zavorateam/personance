@@ -39,6 +39,7 @@
       body {
         margin: 0;
         height: 100%;
+        height: 100dvh;
         background: #050510;
         color: var(--text-primary);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, ui-sans-serif, system-ui, sans-serif;
@@ -629,10 +630,10 @@
       /* Bottom Floating Player Dock */
       #player-dock {
         position: fixed;
-        bottom: max(14px, env(safe-area-inset-bottom, 14px));
+        bottom: calc(max(14px, env(safe-area-inset-bottom, 14px)) + var(--vv-bottom-inset, 0px));
         left: 50%;
-        transform: translate(-50%, 0);
-        width: calc(100% - 28px);
+        transform: translate3d(-50%, 0, 0);
+        width: calc(100% - 28px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
         max-width: 980px;
         background: var(--bg-panel);
         backdrop-filter: blur(24px);
@@ -648,21 +649,23 @@
         transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.32s ease;
       }
       #player-dock.is-collapsed {
-        transform: translate(-50%, calc(100% + 44px + env(safe-area-inset-bottom, 14px))) !important;
+        transform: translate3d(-50%, calc(100% + 44px + env(safe-area-inset-bottom, 14px) + var(--vv-bottom-inset, 0px)), 0) !important;
         opacity: 0 !important;
         pointer-events: none !important;
       }
       #dock-restore-btn {
         position: fixed;
-        bottom: max(12px, env(safe-area-inset-bottom, 12px));
+        bottom: calc(max(12px, env(safe-area-inset-bottom, 12px)) + var(--vv-bottom-inset, 0px));
         left: 50%;
-        transform: translate(-50%, calc(100% + 28px));
+        transform: translate3d(-50%, calc(100% + 28px), 0);
         opacity: 0;
+        visibility: hidden;
         pointer-events: none;
         height: 40px;
+        max-width: calc(100vw - 24px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
         padding: 0 16px;
         border-radius: 14px;
-        background: rgba(12, 12, 28, 0.88);
+        background: rgba(12, 12, 28, 0.9);
         backdrop-filter: blur(20px);
         -webkit-backdrop-filter: blur(20px);
         border: 1px solid var(--border-glass-bright);
@@ -673,15 +676,18 @@
         font-family: inherit;
         font-size: 12px;
         font-weight: 500;
+        white-space: nowrap;
         cursor: pointer;
-        z-index: 52;
+        z-index: 60;
         box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55), 0 0 20px rgba(138, 124, 255, 0.16);
-        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, border-color 0.2s ease;
+        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, border-color 0.2s ease, visibility 0s linear 0.4s;
       }
       #dock-restore-btn.visible {
-        transform: translate(-50%, 0);
+        transform: translate3d(-50%, 0, 0);
         opacity: 1;
+        visibility: visible;
         pointer-events: auto;
+        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, border-color 0.2s ease, visibility 0s;
       }
       #dock-restore-btn:hover {
         border-color: var(--cyan);
@@ -691,6 +697,12 @@
         width: 16px;
         height: 16px;
         fill: var(--cyan);
+        flex-shrink: 0;
+      }
+      #dock-restore-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       body.cinema-mode #dock-restore-btn {
         opacity: 0 !important;
@@ -1522,29 +1534,39 @@
           padding: 10px 14px;
         }
         #player-dock {
-          bottom: max(10px, env(safe-area-inset-bottom, 10px));
-          width: calc(100% - 20px);
-          padding: 12px 14px 12px;
+          bottom: calc(max(10px, env(safe-area-inset-bottom, 10px)) + var(--vv-bottom-inset, 0px));
+          width: calc(100% - 20px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+          padding: 11px 14px 12px;
           border-radius: 22px;
           display: grid;
-          grid-template-columns: 1fr auto;
+          grid-template-columns: auto 1fr;
           grid-template-areas:
-            'info collapse'
+            'info info'
             'timeline timeline'
             'controls right';
           align-items: center;
-          gap: 8px 10px;
+          gap: 6px 10px;
         }
         .track-info {
           grid-area: info;
+          width: 100%;
           max-width: none;
           min-width: 0;
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
         }
-        #dock-collapse-btn {
-          grid-area: collapse;
-          width: 44px;
-          height: 44px;
-          border-radius: 12px;
+        .track-title {
+          flex: 1;
+          min-width: 0;
+        }
+        .track-meta {
+          flex-shrink: 0;
+          gap: 6px;
+        }
+        .track-playlist-badge {
+          max-width: 110px;
         }
         .dock-center {
           grid-area: timeline;
@@ -1638,11 +1660,90 @@
         }
         #toast {
           top: auto;
-          bottom: calc(max(12px, env(safe-area-inset-bottom, 12px)) + 178px);
+          bottom: calc(max(12px, env(safe-area-inset-bottom, 12px)) + var(--vv-bottom-inset, 0px) + 168px);
           font-size: 12px;
           letter-spacing: 0.08em;
           padding: 8px 16px;
           max-width: calc(100vw - 32px);
+        }
+      }
+
+      /* Mobile Horizontal / Landscape Mode (short viewports & mobile landscape) */
+      @media (max-height: 500px) and (max-width: 960px), (max-height: 540px) and (pointer: coarse), (max-width: 960px) and (orientation: landscape) and (pointer: coarse) {
+        #player-dock {
+          bottom: calc(max(8px, env(safe-area-inset-bottom, 8px)) + var(--vv-bottom-inset, 0px));
+          width: calc(100% - 20px - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px));
+          padding: 8px 12px 9px;
+          border-radius: 18px;
+          display: grid;
+          grid-template-columns: auto minmax(0, 1fr) auto;
+          grid-template-areas:
+            'controls info right'
+            'timeline timeline timeline';
+          align-items: center;
+          gap: 4px 12px;
+        }
+        .dock-playback-controls {
+          grid-area: controls;
+          gap: 6px;
+        }
+        .dock-step-btn {
+          width: 44px;
+          height: 44px;
+        }
+        .play-btn.disc-btn {
+          width: 48px;
+          height: 48px;
+        }
+        .track-info {
+          grid-area: info;
+          width: 100%;
+          max-width: none;
+          min-width: 0;
+          flex-direction: row;
+          align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+        }
+        .track-title {
+          flex: 1;
+          min-width: 0;
+        }
+        .track-meta {
+          flex-shrink: 0;
+          gap: 6px;
+        }
+        .dock-right {
+          grid-area: right;
+          justify-content: flex-end;
+          gap: 6px;
+        }
+        #vol-slider {
+          display: none;
+        }
+        .vol-btn,
+        .dock-icon-btn {
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
+        }
+        .vol-btn {
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid var(--border-glass);
+        }
+        .dock-center {
+          grid-area: timeline;
+          gap: 2px;
+        }
+        .timeline-bar-wrap {
+          height: 28px;
+        }
+        #dock-restore-btn {
+          bottom: calc(max(10px, env(safe-area-inset-bottom, 10px)) + var(--vv-bottom-inset, 0px));
+          height: 44px;
+          padding: 0 20px;
+          border-radius: 14px;
+          font-size: 13px;
         }
       }
     </style>
@@ -1859,11 +1960,11 @@
           <svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
           <span class="playlist-counter-badge" id="playlist-dock-counter">1</span>
         </button>
-      </div>
 
-      <button class="dock-icon-btn" id="dock-collapse-btn" title="Скрыть нижнюю панель" aria-label="Скрыть нижнюю панель">
-        <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
-      </button>
+        <button class="dock-icon-btn" id="dock-collapse-btn" title="Скрыть нижнюю панель" aria-label="Скрыть нижнюю панель">
+          <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+        </button>
+      </div>
     </div>
 
     <!-- Restore Handle when Bottom Dock is collapsed -->
