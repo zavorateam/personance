@@ -189,6 +189,10 @@ export class DevPanel {
       'moveSpeed',
       'turnSpeed',
       'decay',
+      'magnetForce',
+      'fluidity',
+      'dropletSpread',
+      'coreGlow',
     ]);
 
     for (const [name, spec] of Object.entries(scene.params)) {

@@ -15,6 +15,7 @@ export const SCENE_REGISTRY: SceneDescriptor[] = [
       magnetForce: { default: 1.4, min: 0.3, max: 3.0 },
       fluidity: { default: 1.0, min: 0.2, max: 2.5 },
       viscosity: { default: 0.7, min: 0.1, max: 2.0 },
+      dropletSpread: { default: 1.0, min: 0.2, max: 2.5 },
       iridescence: { default: 1.0, min: 0.0, max: 2.5 },
       coreGlow: { default: 0.8, min: 0.0, max: 2.5 },
       oklab: { default: 1, min: 0, max: 1 },

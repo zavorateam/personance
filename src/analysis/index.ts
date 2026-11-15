@@ -1,7 +1,9 @@
 import { openDB, type IDBPDatabase } from 'idb';
 import type { AnalysisProgress, SongAnalysis } from '../types/song-analysis';
 import { SONG_ANALYSIS_VERSION } from '../types/song-analysis';
+import type { PreservedFileTags, TrackMetadataReport, VltkTechInfo } from '../types/track-metadata';
 import type { AnalyzeRequest } from './worker';
+import type { MetadataWorkerRequest } from './metadata-worker';
 
 let dbPromise: Promise<IDBPDatabase> | null = null;
 
@@ -75,5 +77,85 @@ export async function analyzeInWorker(
     };
     const req: AnalyzeRequest = { mono, sampleRate: 22050, contentHash };
     worker.postMessage(req, [mono.buffer]);
+  });
+}
+
+function guessContainerFromFile(fileName: string): PreservedFileTags['container'] {
+  const ext = fileName.split('.').pop()?.toLowerCase();
+  if (ext === 'mp3') return 'mp3';
+  if (ext === 'flac') return 'flac';
+  if (ext === 'wav') return 'wav';
+  if (ext === 'ogg' || ext === 'opus') return 'ogg';
+  if (ext === 'm4a' || ext === 'mp4' || ext === 'aac') return 'mp4';
+  return 'unknown';
+}
+
+/**
+ * Computes full VLTK_* acoustic & classification metadata off-thread
+ * from the decoded AudioBuffer without blocking playback.
+ */
+export function computeTrackMetadataInWorker(
+  buffer: AudioBuffer,
+  analysis: SongAnalysis,
+  fileName: string,
+  fileSize: number,
+  hasEmbeddedCover: boolean,
+): Promise<TrackMetadataReport> {
+  const nCh = Math.min(buffer.numberOfChannels, 2);
+  const channels: Float32Array[] = [];
+  const transfer: ArrayBuffer[] = [];
+  for (let c = 0; c < nCh; c++) {
+    const copy = new Float32Array(buffer.getChannelData(c));
+    channels.push(copy);
+    transfer.push(copy.buffer);
+  }
+
+  const container = guessContainerFromFile(fileName);
+  const durationSec = Math.max(0.01, buffer.duration || analysis.durationSec);
+  const tech: VltkTechInfo = {
+    container,
+    codec: container === 'unknown' ? 'pcm/audio' : container,
+    codecProfile: 'standard',
+    sampleRate: buffer.sampleRate,
+    channels: buffer.numberOfChannels,
+    bitrate: fileSize > 0 ? (fileSize * 8) / durationSec : 0,
+    bitDepth: container === 'wav' || container === 'flac' ? 16 : null,
+    durationSec,
+    fileSize,
+  };
+  const preserved: PreservedFileTags = {
+    container,
+    hasEmbeddedCover,
+    musicbrainz: {},
+    acoustid: {},
+    customTags: {},
+  };
+
+  // Clone analysis without transferring huge Float32Arrays (structured clone keeps curves intact)
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./metadata-worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (
+      e: MessageEvent<{ ok: true; metadata: TrackMetadataReport } | { ok: false; message: string }>,
+    ) => {
+      worker.terminate();
+      if (e.data.ok) {
+        resolve(e.data.metadata);
+      } else {
+        reject(new Error(e.data.message));
+      }
+    };
+    worker.onerror = (err) => {
+      worker.terminate();
+      reject(new Error(err.message));
+    };
+    const req: MetadataWorkerRequest = {
+      channels,
+      sampleRate: buffer.sampleRate,
+      length: buffer.length,
+      analysis,
+      tech,
+      preserved,
+    };
+    worker.postMessage(req, transfer);
   });
 }

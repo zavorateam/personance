@@ -1,5 +1,11 @@
 import * as THREE from 'three/webgpu';
-import { analyzeInWorker, cacheAnalysis, getCachedAnalysis, sha256Hex } from './analysis';
+import {
+  analyzeInWorker,
+  cacheAnalysis,
+  computeTrackMetadataInWorker,
+  getCachedAnalysis,
+  sha256Hex,
+} from './analysis';
 import { applyInterfacePalette, emotionPalette, extractPalette } from './analysis/palette';
 import { requestDirectorPlan } from './conductor/director';
 import { PostStack } from './post/pipeline';
@@ -434,6 +440,36 @@ async function boot(): Promise<void> {
   window.visualViewport?.addEventListener('scroll', handleViewportResize);
 
   let currentTrackId: string | null = 'demo-track-adventures';
+  let metadataToken = 0;
+
+  function scheduleMetadataComputation(
+    audioBuffer: AudioBuffer,
+    targetAnalysis: SongAnalysis,
+    fileName: string,
+    fileSize: number,
+    hasEmbeddedCover: boolean,
+    token: number,
+  ): void {
+    if (targetAnalysis.metadata) return;
+    void computeTrackMetadataInWorker(
+      audioBuffer,
+      targetAnalysis,
+      fileName,
+      fileSize,
+      hasEmbeddedCover,
+    )
+      .then(async (metadata) => {
+        if (token !== metadataToken) return;
+        targetAnalysis.metadata = metadata;
+        player?.attachAnalysis(targetAnalysis);
+        debugState.analysis = targetAnalysis;
+        lastAnalysis = targetAnalysis;
+        await cacheAnalysis(targetAnalysis);
+      })
+      .catch((err) => {
+        console.warn('[personance] VLTK metadata computation skipped:', err);
+      });
+  }
 
   function handleTrackEnded(): void {
     const next = playlistManager.getNextTrack();
@@ -540,6 +576,16 @@ async function boot(): Promise<void> {
       lastAnalysis = analysis;
       player.attachAnalysis(analysis);
       manager.setIntensity(analysis.emotion?.arousal ?? 0.5);
+
+      const activeMetaToken = ++metadataToken;
+      scheduleMetadataComputation(
+        audioBuffer,
+        analysis,
+        file.name,
+        file.size,
+        Boolean(palette?.coverArtUrl),
+        activeMetaToken,
+      );
 
       const effectivePalette =
         palette ?? (analysis.emotion ? emotionPalette(analysis.emotion) : null);

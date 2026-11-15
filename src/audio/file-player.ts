@@ -1,5 +1,6 @@
-import type { AudioFeatureProvider, FrameFeatures } from './features';
+import type { AudioFeatureProvider, FrameFeatures, VltkApertures } from './features';
 import type { Palette, Section, SongAnalysis } from '../types/song-analysis';
+import { defaultVltkTags, extractNormalizedVltkTags } from './vltk-tags';
 
 /**
  * Decoded-file playback with realtime FFT features. This is the playback
@@ -18,8 +19,34 @@ export class FilePlayer implements AudioFeatureProvider {
   private playing = false;
 
   private freqData: Uint8Array<ArrayBuffer>;
+  private prevSpectrum: Float32Array;
   private spectrumOut: Float32Array;
-  private smoothed = { level: 0, bass: 0, mid: 0, treble: 0, centroid: 0 };
+  private smoothed = {
+    level: 0,
+    bass: 0,
+    mid: 0,
+    treble: 0,
+    centroid: 0,
+    subBass: 0,
+    lowMid: 0,
+    highMid: 0,
+    air: 0,
+    flux: 0,
+  };
+  private vltkTags = defaultVltkTags();
+  private vltkSource: 'metadata' | 'live-proxy' = 'live-proxy';
+  private aperturesOut: VltkApertures = {
+    subBass: 0,
+    bass: 0,
+    lowMid: 0,
+    mid: 0,
+    highMid: 0,
+    treble: 0,
+    air: 0,
+    flux: 0,
+    tags: this.vltkTags,
+    source: 'live-proxy',
+  };
 
   palette: Palette | null = null;
   onEnded: (() => void) | null = null;
@@ -39,6 +66,7 @@ export class FilePlayer implements AudioFeatureProvider {
     this.analyser.connect(this.gainNode);
     this.gainNode.connect(this.ctx.destination);
     this.freqData = new Uint8Array(this.analyser.frequencyBinCount);
+    this.prevSpectrum = new Float32Array(this.analyser.frequencyBinCount);
     this.spectrumOut = new Float32Array(this.analyser.frequencyBinCount);
   }
 
@@ -59,6 +87,11 @@ export class FilePlayer implements AudioFeatureProvider {
     this.lastBeatIndex = -1;
     this.lastDownbeatIndex = -1;
     this.sortedEnergy = Float32Array.from(analysis.curves.energy).sort();
+    const extracted = extractNormalizedVltkTags(analysis);
+    this.vltkTags = extracted.tags;
+    this.vltkSource = extracted.source;
+    this.aperturesOut.tags = this.vltkTags;
+    this.aperturesOut.source = this.vltkSource;
   }
 
   get isPlaying(): boolean {
@@ -136,20 +169,29 @@ export class FilePlayer implements AudioFeatureProvider {
 
     let sum = 0;
     let weighted = 0;
+    let rawFlux = 0;
     for (let i = 0; i < n; i++) {
       const v = this.freqData[i] / 255;
       this.spectrumOut[i] = v;
       sum += v;
       weighted += v * i;
+      const diff = v - this.prevSpectrum[i];
+      if (diff > 0) rawFlux += diff;
+      this.prevSpectrum[i] = v;
     }
     const level = sum / n;
+    const flux = clamp01(rawFlux * 0.16);
     const centroidHz = sum > 0 ? (weighted / sum) * binHz : 0;
     // Map centroid to 0..1 over a perceptually useful 100 Hz – 8 kHz log range.
     const centroid = clamp01(Math.log2(Math.max(centroidHz, 100) / 100) / Math.log2(8000 / 100));
 
+    const subBass = this.bandMean(20, 80, binHz);
     const bass = this.bandMean(20, 250, binHz);
+    const lowMid = this.bandMean(250, 800, binHz);
     const mid = this.bandMean(250, 2000, binHz);
+    const highMid = this.bandMean(2000, 4500, binHz);
     const treble = this.bandMean(2000, 8000, binHz);
+    const air = this.bandMean(6000, 16000, binHz);
 
     const s = this.smoothed;
     smooth(s, 'level', level);
@@ -157,6 +199,20 @@ export class FilePlayer implements AudioFeatureProvider {
     smooth(s, 'mid', mid);
     smooth(s, 'treble', treble);
     smooth(s, 'centroid', centroid);
+    smooth(s, 'subBass', subBass);
+    smooth(s, 'lowMid', lowMid);
+    smooth(s, 'highMid', highMid);
+    smooth(s, 'air', air);
+    smooth(s, 'flux', flux);
+
+    this.aperturesOut.subBass = s.subBass;
+    this.aperturesOut.bass = s.bass;
+    this.aperturesOut.lowMid = s.lowMid;
+    this.aperturesOut.mid = s.mid;
+    this.aperturesOut.highMid = s.highMid;
+    this.aperturesOut.treble = s.treble;
+    this.aperturesOut.air = s.air;
+    this.aperturesOut.flux = s.flux;
 
     const t = this.currentTime;
     const grid = this.beatGrid(t);
@@ -177,6 +233,7 @@ export class FilePlayer implements AudioFeatureProvider {
       nextSectionIn: grid.nextSectionIn,
       nextSectionEnergy: grid.nextSectionEnergy,
       spectrum: this.spectrumOut,
+      apertures: this.aperturesOut,
     };
   }
 

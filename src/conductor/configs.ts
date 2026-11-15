@@ -103,6 +103,7 @@ export const DEFAULT_CONFIGS: Record<string, ConductorConfig> = {
       { feature: 'bass', param: 'magnetForce', out: [0.8, 2.5], curve: 'sqrt', attack: 0.03, release: 0.22 },
       { feature: 'level', param: 'iridescence', in: [0, 0.6], out: [0.6, 2.2], attack: 0.05, release: 0.3 },
       { feature: 'treble', param: 'fluidity', in: [0, 0.8], out: [0.7, 1.8], attack: 0.08, release: 0.35 },
+      { feature: 'mid', param: 'dropletSpread', in: [0, 0.85], out: [0.65, 1.75], attack: 0.05, release: 0.28 },
       { feature: 'centroid', param: 'coreGlow', out: [0.5, 2.0], attack: 0.2, release: 0.5 },
       { feature: 'inhale', param: 'inhale', out: [0, 1], attack: 0, release: 0.05 },
       { feature: 'drop', param: 'burst', out: [0, 1], attack: 0, release: 0.02 },

@@ -1,5 +1,6 @@
-import type { AudioFeatureProvider, FrameFeatures } from './features';
+import type { AudioFeatureProvider, FrameFeatures, VltkApertures } from './features';
 import type { Palette } from '../types/song-analysis';
+import { defaultVltkTags } from './vltk-tags';
 
 export type LiveSource = 'display' | 'mic';
 
@@ -21,9 +22,33 @@ export class LiveProvider implements AudioFeatureProvider {
   private freqData: Uint8Array<ArrayBuffer>;
   private prevSpectrum: Float32Array;
   private spectrumOut: Float32Array;
-  private smoothed = { level: 0, bass: 0, mid: 0, treble: 0, centroid: 0 };
+  private smoothed = {
+    level: 0,
+    bass: 0,
+    mid: 0,
+    treble: 0,
+    centroid: 0,
+    subBass: 0,
+    lowMid: 0,
+    highMid: 0,
+    air: 0,
+    flux: 0,
+  };
   /** Running maxima with slow decay — adaptive gain normalization. */
   private runningMax = { level: 0.1, bass: 0.1, mid: 0.1, treble: 0.1 };
+  private vltkTags = defaultVltkTags();
+  private aperturesOut: VltkApertures = {
+    subBass: 0,
+    bass: 0,
+    lowMid: 0,
+    mid: 0,
+    highMid: 0,
+    treble: 0,
+    air: 0,
+    flux: 0,
+    tags: this.vltkTags,
+    source: 'live-proxy',
+  };
 
   private fluxRing: number[] = [];
   private lastOnsetAt = 0;
@@ -97,13 +122,22 @@ export class LiveProvider implements AudioFeatureProvider {
 
     // Adaptive-normalized bands.
     const rawLevel = sum / n;
+    const rawSubBass = this.bandMean(20, 80, binHz);
     const rawBass = this.bandMean(20, 250, binHz);
+    const rawLowMid = this.bandMean(250, 800, binHz);
     const rawMid = this.bandMean(250, 2000, binHz);
+    const rawHighMid = this.bandMean(2000, 4500, binHz);
     const rawTreble = this.bandMean(2000, 8000, binHz);
+    const rawAir = this.bandMean(6000, 16000, binHz);
     const level = this.normalize('level', rawLevel);
     const bass = this.normalize('bass', rawBass);
     const mid = this.normalize('mid', rawMid);
     const treble = this.normalize('treble', rawTreble);
+    const subBass = this.runningMax.bass > 1e-4 ? clamp01(rawSubBass / this.runningMax.bass) : 0;
+    const lowMid = this.runningMax.mid > 1e-4 ? clamp01(rawLowMid / this.runningMax.mid) : 0;
+    const highMid = this.runningMax.treble > 1e-4 ? clamp01(rawHighMid / this.runningMax.treble) : 0;
+    const air = this.runningMax.treble > 1e-4 ? clamp01(rawAir / this.runningMax.treble) : 0;
+    const fluxNorm = clamp01(flux * 0.16);
 
     // Spectral-flux onset with median threshold over ~1.5 s.
     this.fluxRing.push(flux);
@@ -122,6 +156,28 @@ export class LiveProvider implements AudioFeatureProvider {
     smooth(s, 'mid', mid);
     smooth(s, 'treble', treble);
     smooth(s, 'centroid', centroid);
+    smooth(s, 'subBass', subBass);
+    smooth(s, 'lowMid', lowMid);
+    smooth(s, 'highMid', highMid);
+    smooth(s, 'air', air);
+    smooth(s, 'flux', fluxNorm);
+
+    // Adaptive live VLTK_* proxies (slowly track signal dynamics)
+    const vt = this.vltkTags;
+    vt.VLTK_CREST_FACTOR_DB += (clamp01(0.3 + fluxNorm * 0.7) - vt.VLTK_CREST_FACTOR_DB) * 0.05;
+    vt.VLTK_SPECTRAL_CONTRAST_MEAN += (clamp01(Math.abs(treble - bass) * 0.7 + 0.35) - vt.VLTK_SPECTRAL_CONTRAST_MEAN) * 0.05;
+    vt.VLTK_SPECTRAL_BANDWIDTH_MEAN += (clamp01(0.25 + (mid + treble) * 0.45) - vt.VLTK_SPECTRAL_BANDWIDTH_MEAN) * 0.05;
+    vt.VLTK_AROUSAL += (clamp01(level * 0.6 + fluxNorm * 0.5) - vt.VLTK_AROUSAL) * 0.04;
+    vt.VLTK_DANCEABILITY += (clamp01(0.35 + bass * 0.65) - vt.VLTK_DANCEABILITY) * 0.04;
+
+    this.aperturesOut.subBass = s.subBass;
+    this.aperturesOut.bass = s.bass;
+    this.aperturesOut.lowMid = s.lowMid;
+    this.aperturesOut.mid = s.mid;
+    this.aperturesOut.highMid = s.highMid;
+    this.aperturesOut.treble = s.treble;
+    this.aperturesOut.air = s.air;
+    this.aperturesOut.flux = s.flux;
 
     return {
       time: t,
@@ -139,6 +195,7 @@ export class LiveProvider implements AudioFeatureProvider {
       nextSectionIn: null,
       nextSectionEnergy: null,
       spectrum: this.spectrumOut,
+      apertures: this.aperturesOut,
     };
   }
 
