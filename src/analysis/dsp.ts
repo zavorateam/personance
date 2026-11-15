@@ -99,7 +99,7 @@ export function analyzeAudio(
   // Onsets from raw (pre-normalization) flux.
   const onsets = pickOnsets(flux, hopSec);
   onProgress({ stage: 'beats', pct: 0.3 });
-  const { tempo, beats } = trackBeats(flux, hopSec, mono.length / sampleRate);
+  const { tempo, beats } = trackBeats(flux, hopSec, mono.length / sampleRate, onsets);
   onProgress({ stage: 'beats', pct: 1 });
 
   // Centroid maps to a log scale before normalization (perceptual brightness).
@@ -269,9 +269,10 @@ function trackBeats(
   flux: Float32Array,
   hopSec: number,
   durationSec: number,
+  onsets: number[] = [],
 ): { tempo: TempoInfo; beats: number[] } {
   const n = flux.length;
-  if (n < 64) return { tempo: { bpm: 0, confidence: 0 }, beats: [] };
+  if (n < 64) return { tempo: { bpm: 0, confidence: 0, candidates: [], conflict: false }, beats: [] };
 
   // Smooth + de-mean the envelope.
   const env = new Float32Array(n);
@@ -283,7 +284,7 @@ function trackBeats(
   const maxLag = Math.min(n - 1, Math.round(60 / 40 / hopSec)); // 40 BPM
   let r0 = 0;
   for (let i = 0; i < n; i++) r0 += env[i] * env[i];
-  if (r0 === 0) return { tempo: { bpm: 0, confidence: 0 }, beats: [] };
+  if (r0 === 0) return { tempo: { bpm: 0, confidence: 0, candidates: [], conflict: false }, beats: [] };
 
   const ac = new Float32Array(maxLag + 1);
   for (let lag = minLag; lag <= maxLag; lag++) {
@@ -292,7 +293,8 @@ function trackBeats(
     ac[lag] = s / r0;
   }
 
-  // Score each lag with harmonic support; prefer the 90–180 BPM octave.
+  // Collect all local autocorrelation peaks for candidate/conflict analysis.
+  const rawPeaks: { lag: number; bpm: number; rawAc: number; score: number }[] = [];
   let bestLag = minLag;
   let bestScore = -Infinity;
   for (let lag = minLag; lag <= maxLag; lag++) {
@@ -304,10 +306,64 @@ function trackBeats(
       bestScore = score;
       bestLag = lag;
     }
+    if (
+      lag > minLag &&
+      lag < maxLag &&
+      ac[lag] > 0.08 &&
+      ac[lag] >= ac[lag - 1] &&
+      ac[lag] >= ac[lag + 1]
+    ) {
+      rawPeaks.push({ lag, bpm: Math.round(bpm * 100) / 100, rawAc: ac[lag], score });
+    }
   }
+
+  // Deduplicate nearby BPM peaks (within 4%) and keep top 5 autocorrelation candidates.
+  rawPeaks.sort((a, b) => b.rawAc - a.rawAc);
+  const candidates: { bpm: number; score: number; source: string }[] = [];
+  for (const p of rawPeaks) {
+    if (candidates.every((c) => Math.abs(c.bpm - p.bpm) / Math.max(c.bpm, 1) > 0.04)) {
+      candidates.push({ bpm: p.bpm, score: Math.max(0, Math.min(1, p.rawAc)), source: 'autocorr_flux' });
+      if (candidates.length >= 5) break;
+    }
+  }
+
+  // Add onset-IOI median candidate for independent estimator cross-check
+  if (onsets.length >= 6) {
+    const iois: number[] = [];
+    for (let i = 1; i < onsets.length; i++) {
+      const dt = onsets[i] - onsets[i - 1];
+      if (dt >= 0.25 && dt <= 1.6) iois.push(dt);
+    }
+    if (iois.length >= 4) {
+      iois.sort((a, b) => a - b);
+      const medIoi = iois[iois.length >> 1];
+      const ioiBpm = Math.round((60 / medIoi) * 100) / 100;
+      if (ioiBpm >= 40 && ioiBpm <= 220) {
+        candidates.push({ bpm: ioiBpm, score: 0.72, source: 'onset_ioi' });
+      }
+    }
+  }
+
   const periodSec = bestLag * hopSec;
   const bpm = 60 / periodSec;
   const confidence = Math.max(0, Math.min(1, ac[bestLag]));
+  const roundedBpm = Math.round(bpm * 100) / 100;
+
+  // Check half-time / double-time competition among autocorrelation peaks
+  const topAc = candidates.filter((c) => c.source === 'autocorr_flux');
+  const primaryAc = topAc[0];
+  let conflict = false;
+  if (primaryAc) {
+    for (let i = 1; i < topAc.length; i++) {
+      const alt = topAc[i];
+      const ratio = alt.bpm > primaryAc.bpm ? alt.bpm / primaryAc.bpm : primaryAc.bpm / alt.bpm;
+      const isOctave = Math.abs(ratio - 2.0) <= 0.08;
+      if (isOctave && alt.score >= primaryAc.score * 0.78 && alt.score >= 0.28) {
+        conflict = true;
+        break;
+      }
+    }
+  }
 
   // Phase search: maximize summed flux at grid points.
   const periodFrames = bestLag;
@@ -328,7 +384,7 @@ function trackBeats(
 
   const beats: number[] = [];
   for (let t = bestPhase * hopSec; t < durationSec; t += periodSec) beats.push(t);
-  return { tempo: { bpm: Math.round(bpm * 10) / 10, confidence }, beats };
+  return { tempo: { bpm: roundedBpm, confidence, candidates, conflict }, beats };
 }
 
 /**

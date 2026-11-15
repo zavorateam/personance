@@ -1,13 +1,27 @@
 import { Vibrant } from 'node-vibrant/browser';
 import type { Emotion, Palette } from '../types/song-analysis';
 import { extractCoverArt } from './cover-extractor';
+import {
+  oklabDarken,
+  oklabGradientCss,
+  oklabLerp,
+  oklabLighten,
+  oklchToHex,
+} from './oklab';
+
+export {
+  oklabDarken,
+  oklabGradientCss,
+  oklabLerp,
+  oklabLighten,
+};
 
 /**
  * Synthetic palette for tracks without cover art. Emotions are complex —
  * one hue is a caricature. The base hue comes from valence, but the
  * SCHEME comes from character: high arousal earns triadic contrast,
  * bright songs spread analogous, moody ones get a complementary accent.
- * A key-derived rotation keeps two songs with the same mood apart.
+ * Uses OKLCH perceptual space for uniform lightness and chroma fidelity.
  */
 export function emotionPalette(e: Emotion): Palette {
   // Base hue: valence path (indigo → magenta → amber), rotated by key
@@ -15,7 +29,7 @@ export function emotionPalette(e: Emotion): Palette {
   const keyIndex = 'C C♯ D E♭ E F F♯ G A♭ A B♭ B'.split(' ').indexOf(e.key);
   const keyShift = (Math.max(0, keyIndex) / 11 - 0.5) * 110;
   const hue = (250 + e.valence * 145 + keyShift + 360) % 360;
-  const sat = 0.5 + e.arousal * 0.4;
+  const chroma = 0.14 + e.arousal * 0.12;
 
   // Scheme by character.
   let h2: number;
@@ -34,10 +48,12 @@ export function emotionPalette(e: Emotion): Palette {
     h3 = (hue + 30) % 360;
   }
 
-  const primary = hslHex(hue, sat, 0.6);
-  const accent = hslHex(h2, Math.min(1, sat + 0.12), 0.72);
-  const secondary = hslHex(h3, sat * 0.85, 0.55);
-  const background = hslHex((hue + 15) % 360, sat * 0.5, 0.07);
+  // Synthesize perceptually calibrated swatches in OKLCH
+  const primary = oklchToHex({ L: 0.65, C: chroma, h: hue });
+  const accent = oklchToHex({ L: 0.78, C: Math.min(0.28, chroma + 0.05), h: h2 });
+  const secondary = oklchToHex({ L: 0.58, C: chroma * 0.9, h: h3 });
+  const background = oklchToHex({ L: 0.12, C: chroma * 0.25, h: (hue + 15) % 360 });
+
   return {
     background,
     primary,
@@ -46,16 +62,6 @@ export function emotionPalette(e: Emotion): Palette {
     swatches: [primary, accent, secondary],
     coverArtUrl: null,
   };
-}
-
-function hslHex(h: number, s: number, l: number): string {
-  const a = s * Math.min(l, 1 - l);
-  const f = (n: number): number => {
-    const k = (n + h / 30) % 12;
-    return l - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)));
-  };
-  const to255 = (x: number): number => Math.round(x * 255);
-  return `#${((to255(f(0)) << 16) | (to255(f(8)) << 8) | to255(f(4))).toString(16).padStart(6, '0')}`;
 }
 
 /**
@@ -90,7 +96,8 @@ export function applyInterfacePalette(palette: Palette): void {
   root.style.setProperty('--accent-glow', pGlow);
   root.style.setProperty('--border-glass-bright', aGlow);
   root.style.setProperty('--accent-glow-secondary', sGlow);
-  root.style.setProperty('--cover-gradient', `linear-gradient(135deg, ${p} 0%, ${a} 50%, ${s} 100%)`);
+  // OKLab perceptual gradient stops avoid desaturated gray muddy transitions
+  root.style.setProperty('--cover-gradient', oklabGradientCss('135deg', [p, a, s], 7));
 
   // Intelligently adapt player dock styling with ambient cover gradient
   const playerDock = document.getElementById('player-dock');
@@ -100,10 +107,10 @@ export function applyInterfacePalette(palette: Palette): void {
     playerDock.style.boxShadow = `0 16px 42px rgba(0, 0, 0, 0.72), 0 0 35px rgba(${pRgb.r}, ${pRgb.g}, ${pRgb.b}, 0.32), 0 0 15px rgba(${aRgb.r}, ${aRgb.g}, ${aRgb.b}, 0.2)`;
   }
 
-  // Intelligently adapt timeline scrubber gradient
+  // Intelligently adapt timeline scrubber gradient with OKLab interpolation
   const timelineFill = document.getElementById('timeline-fill');
   if (timelineFill) {
-    timelineFill.style.background = `linear-gradient(90deg, ${p} 0%, ${a} 60%, ${s} 100%)`;
+    timelineFill.style.background = oklabGradientCss('90deg', [p, a, s], 6);
     timelineFill.style.boxShadow = `0 0 12px ${pGlow}`;
   }
 
@@ -253,20 +260,17 @@ async function extractColorsFromImage(url: string): Promise<{
 }
 
 function lighten(hexColor: string, amount: number): string {
-  const n = parseInt(hexColor.replace('#', ''), 16);
-  if (Number.isNaN(n)) return '#b8adff';
-  const r = Math.min(255, Math.round(((n >> 16) & 0xff) + (255 - ((n >> 16) & 0xff)) * amount));
-  const g = Math.min(255, Math.round(((n >> 8) & 0xff) + (255 - ((n >> 8) & 0xff)) * amount));
-  const b = Math.min(255, Math.round((n & 0xff) + (255 - (n & 0xff)) * amount));
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+  try {
+    return oklabLighten(hexColor, amount);
+  } catch {
+    return '#b8adff';
+  }
 }
 
 function darken(hexColor: string, amount: number): string {
-  const n = parseInt(hexColor.replace('#', ''), 16);
-  if (Number.isNaN(n)) return '#0a0a18';
-  const f = 1 - amount;
-  const r = Math.round(((n >> 16) & 0xff) * f);
-  const g = Math.round(((n >> 8) & 0xff) * f);
-  const b = Math.round((n & 0xff) * f);
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
+  try {
+    return oklabDarken(hexColor, amount);
+  } catch {
+    return '#0a0a18';
+  }
 }

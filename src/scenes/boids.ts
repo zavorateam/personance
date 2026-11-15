@@ -26,6 +26,7 @@ import {
 import type { FrameFeatures } from '../audio/features';
 import type { Palette } from '../types/song-analysis';
 import type { ParamSpec, SceneContext, VisualScene } from './scene';
+import { oklabPaletteRamp3 } from '../analysis/oklab-tsl';
 
 const COUNT = 32_768;
 const BOUNDS = 14;
@@ -52,6 +53,7 @@ export class Boids implements VisualScene {
     speed: { default: 1.0, min: 0.2, max: 2.5 },
     scatter: { default: 0, min: 0, max: 1 },
     brightness: { default: 0.8, min: 0, max: 2.5 },
+    oklab: { default: 1, min: 0, max: 1 }, // 1 = OKLab perceptual color interpolation, 0 = linear RGB
     fade: { default: 1, min: 0, max: 1 },
     inhale: { default: 0, min: 0, max: 1 },
     burst: { default: 0, min: 0, max: 1 },
@@ -67,8 +69,10 @@ export class Boids implements VisualScene {
   private uInhale = uniform(0);
   private uBurst = uniform(0);
   private uDelta = uniform(0.016);
+  private uOklab = uniform(1);
   private uColorA = uniform(color('#7ad9ff'));
   private uColorB = uniform(color('#ffd166'));
+  private uColorPeak = uniform(color('#ffffff'));
   private uPredator = uniform(new THREE.Vector3(0, 0, 0));
   private uPredStrength = uniform(0);
 
@@ -79,11 +83,16 @@ export class Boids implements VisualScene {
   private paramValues: Record<string, number> = {};
 
   getParam(name: string): number {
+    if (name === 'oklab') return this.uOklab.value as number;
     return this.paramValues[name] ?? this.params[name]?.default ?? 0;
   }
 
   setParam(name: string, value: number): void {
     this.paramValues[name] = value;
+    if (name === 'oklab') {
+      this.uOklab.value = value;
+      return;
+    }
     const u = {
       cohesion: this.uCohesion,
       separation: this.uSeparation,
@@ -290,7 +299,11 @@ export class Boids implements VisualScene {
     const speedT = smoothstep(1, 8, velAttr.length());
     material.scaleNode = vec2(float(0.18).add(speedT.mul(0.3)), float(0.05));
 
-    material.colorNode = mix(this.uColorA, this.uColorB, speedT).mul(
+    const oklabBoidCol = oklabPaletteRamp3(this.uColorA, this.uColorB, this.uColorPeak, speedT);
+    const linearBoidCol = mix(this.uColorA, this.uColorB, speedT);
+    const boidCol = mix(linearBoidCol, oklabBoidCol, this.uOklab);
+
+    material.colorNode = boidCol.mul(
       this.uBrightness.mul(this.uFade),
     );
     const d = uv().distance(0.5);
@@ -344,13 +357,14 @@ export class Boids implements VisualScene {
     camera.lookAt(0, 0, 0);
   }
 
-  setPalette(a: string, b: string): void {
+  setPalette(a: string, b: string, peak?: string): void {
     (this.uColorA.value as THREE.Color).set(a);
     (this.uColorB.value as THREE.Color).set(b);
+    if (peak) (this.uColorPeak.value as THREE.Color).set(peak);
   }
 
   applyPalette(p: Palette): void {
-    this.setPalette(p.secondary, p.accent);
+    this.setPalette(p.secondary || '#7ad9ff', p.accent || '#ffd166', p.primary || '#ffffff');
   }
 
   dispose(): void {

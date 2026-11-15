@@ -21,6 +21,7 @@ import {
 import type { FrameFeatures } from '../audio/features';
 import type { Palette } from '../types/song-analysis';
 import type { ParamSpec, SceneContext, VisualScene } from './scene';
+import { oklabMix, oklabPaletteRamp3 } from '../analysis/oklab-tsl';
 
 const RT_W = 1280;
 const RT_H = 720;
@@ -74,6 +75,7 @@ export class FerrofluidBlob implements VisualScene {
     viscosity: { default: 0.7, min: 0.1, max: 2.0 },
     iridescence: { default: 1.0, min: 0.0, max: 2.5 },
     coreGlow: { default: 0.8, min: 0.0, max: 2.5 },
+    oklab: { default: 1, min: 0, max: 1 }, // 1 = OKLab perceptual color interpolation, 0 = linear RGB
     fade: { default: 1, min: 0, max: 1 },
     inhale: { default: 0, min: 0, max: 1 },
     burst: { default: 0, min: 0, max: 1 },
@@ -87,6 +89,7 @@ export class FerrofluidBlob implements VisualScene {
   private uBlobWobble = uniform(new THREE.Vector4(0, 0, 0, 0)); // Harmonic shape deformation
   private uPulse = uniform(0.1);
   private uTime = uniform(0);
+  private uOklab = uniform(1);
   private uFade = uniform(1);
   private uLow = uniform(color('#030308'));
   private uHigh = uniform(color('#4ce0d2'));
@@ -132,12 +135,16 @@ export class FerrofluidBlob implements VisualScene {
   }
 
   getParam(name: string): number {
+    if (name === 'oklab') return this.uOklab.value as number;
     return this.paramValues[name] ?? this.params[name]?.default ?? 0;
   }
 
   setParam(name: string, value: number): void {
     this.paramValues[name] = value;
     switch (name) {
+      case 'oklab':
+        this.uOklab.value = value;
+        break;
       case 'fade':
         this.uFade.value = value;
         break;
@@ -277,7 +284,14 @@ export class FerrofluidBlob implements VisualScene {
       // Thin-film oil sheen along glancing angles (Fresnel iridescence)
       const nDotV = norm.dot(v).max(0.0);
       const fresnel = float(1.0).sub(nDotV).pow(3.5);
-      const oilSheen = mix(this.uHigh, this.uAccent, fresnel.mul(1.3).min(1.0));
+      const oklabOilSheen = oklabPaletteRamp3(
+        this.uHigh,
+        this.uAccent,
+        this.uPeak,
+        fresnel.mul(1.2).clamp(float(0), float(1)),
+      );
+      const linearOilSheen = mix(this.uHigh, this.uAccent, fresnel.mul(1.3).min(1.0));
+      const oilSheen = mix(linearOilSheen, oklabOilSheen, this.uOklab);
 
       // Crisp mirror-chrome specular highlights on spike facets
       const chrome = this.uPeak.mul(
@@ -294,9 +308,13 @@ export class FerrofluidBlob implements VisualScene {
 
       // Clean cosmic background: deep space void with subtle track palette aura
       const halo = smoothstep(float(2.4), float(0.0), minApproach);
-      const spaceAura = mix(this.uLow.mul(0.02), this.uAccent.mul(0.12), halo);
+      const oklabSpaceAura = oklabMix(this.uLow.mul(0.04), this.uAccent.mul(0.16), halo);
+      const linearSpaceAura = mix(this.uLow.mul(0.02), this.uAccent.mul(0.12), halo);
+      const spaceAura = mix(linearSpaceAura, oklabSpaceAura, this.uOklab);
 
-      const finalColor = mix(spaceAura, fluidColor, hit);
+      const oklabFinal = oklabMix(spaceAura, fluidColor, hit);
+      const linearFinal = mix(spaceAura, fluidColor, hit);
+      const finalColor = mix(linearFinal, oklabFinal, this.uOklab);
 
       return vec4(finalColor.mul(this.uFade), 1);
     })();

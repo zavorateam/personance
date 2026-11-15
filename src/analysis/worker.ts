@@ -30,12 +30,21 @@ self.onmessage = async (e: MessageEvent<AnalyzeRequest>) => {
   // grid; swap in the transformer's beats when they're ready.
   try {
     const neural = await neuralBeats(mono, (stage, pct) => post({ stage, pct }));
+    const mergedCandidates = [
+      { bpm: neural.bpm, score: neural.confidence, source: 'beat_this_onnx' },
+      ...(analysis.tempo.candidates ?? []),
+    ];
     post({
       stage: 'refined',
       analysis: {
         ...analysis,
         engine: 'beat-this@onnx + classical-dsp@1',
-        tempo: { bpm: neural.bpm, confidence: neural.confidence },
+        tempo: {
+          bpm: neural.bpm,
+          confidence: neural.confidence,
+          candidates: mergedCandidates,
+          conflict: analysis.tempo.conflict,
+        },
         beats: neural.beats,
         downbeats: neural.downbeats,
       },

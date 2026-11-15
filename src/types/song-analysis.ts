@@ -1,3 +1,5 @@
+import type { TrackMetadataReport, TempoCandidate } from './track-metadata';
+
 /**
  * SongAnalysis is the stable contract between analysis engines and the
  * rest of the app. Engines (classical DSP, neural ONNX models, server
@@ -29,11 +31,17 @@ export interface SongAnalysis {
   emotion: Emotion | null;
   /** Reserved: per-stem curves once stem separation lands. */
   stems?: Record<string, FeatureCurves>;
+  /** Comprehensive musical, VLTK_ diagnostic, acoustic, and VLTK_TECH_ metadata. */
+  metadata?: TrackMetadataReport;
 }
 
 export interface TempoInfo {
   bpm: number;
   confidence: number; // 0..1
+  /** Top competing BPM candidates from autocorrelation / onset IOI for octave conflict checks. */
+  candidates?: TempoCandidate[];
+  /** True when convincing competing half-time / double-time tempos exist. */
+  conflict?: boolean;
 }
 
 export interface Section {

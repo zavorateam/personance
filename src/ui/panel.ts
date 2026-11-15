@@ -137,13 +137,22 @@ export class DevPanel {
     this.pane.hidden = hidden;
   }
 
-  private sceneBindings: { obj: Record<string, number>; name: string; api: { disabled: boolean } }[] = [];
+  private sceneBindings: {
+    obj: Record<string, number>;
+    name: string;
+    conductorDriven: boolean;
+    api: { disabled: boolean };
+  }[] = [];
   private boundScene: VisualScene | null = null;
 
   /** Conductor-driven sliders are visible and moving but not editable —
-   *  editing them while the conductor overwrites every frame is a lie. */
+   *  mode switches and unmapped parameters remain directly interactive. */
   private setSlidersDisabled(disabled: boolean): void {
-    for (const b of this.sceneBindings) b.api.disabled = disabled;
+    for (const b of this.sceneBindings) {
+      if (b.conductorDriven) {
+        b.api.disabled = disabled;
+      }
+    }
   }
 
   private rebindScene(scene: VisualScene): void {
@@ -151,15 +160,82 @@ export class DevPanel {
     this.sceneFolder = this.pane.addFolder({ title: `scene: ${scene.name}` });
     this.sceneBindings = [];
     this.boundScene = scene;
+
+    const dynamicConductorParams = new Set([
+      'speed',
+      'warp',
+      'zoomRate',
+      'brightness',
+      'pulse',
+      'inhale',
+      'burst',
+      'amplitude',
+      'detail',
+      'scrollSpeed',
+      'glow',
+      'flare',
+      'iridescence',
+      'heat',
+      'viscosity',
+      'twist',
+      'sensorAngle',
+      'moveSpeed',
+      'turnSpeed',
+      'decay',
+    ]);
+
     for (const [name, spec] of Object.entries(scene.params)) {
       const obj = { [name]: scene.getParam(name) };
+      const isConductorDriven = dynamicConductorParams.has(name);
+
+      let options: Record<string, number> | undefined;
+      let label: string | undefined;
+
+      if (name === 'oklab') {
+        label = 'palette mode';
+        options = { 'OKLab (Perceptual)': 1, 'Linear sRGB': 0 };
+      } else if (scene.name === 'fractal') {
+        if (name === 'perturb') {
+          label = 'zoom precision';
+          options = { 'Perturbation (Deep >f32)': 1, 'Direct f32 (Floor 1e-4)': 0 };
+        } else if (name === 'target') {
+          label = 'dive target';
+          options = {
+            'Seahorse Valley': 0,
+            'Misiurewicz Point': 1,
+            'Top-Bulb Spiral': 2,
+            'Elephant Valley': 3,
+            'San Marco Spirals': 4,
+          };
+        } else if (name === 'zoom') {
+          label = 'zoom depth';
+        }
+      }
+
+      const bindingConfig: Record<string, unknown> = options
+        ? { options, label }
+        : {
+            min: spec.min,
+            max: spec.max,
+            label,
+            format: name === 'zoom' ? (v: number) => (v < 0.005 ? v.toExponential(2) : v.toFixed(3)) : undefined,
+          };
+
       const api = this.sceneFolder
-        .addBinding(obj, name, { min: spec.min, max: spec.max })
+        .addBinding(obj, name, bindingConfig)
         .on('change', (e) => {
           if (this.syncing) return;
-          if (!this.settings.conductor) scene.setParam(name, e.value as number);
+          if (!isConductorDriven || !this.settings.conductor) {
+            scene.setParam(name, e.value as number);
+          }
         });
-      this.sceneBindings.push({ obj, name, api: api as unknown as { disabled: boolean } });
+
+      this.sceneBindings.push({
+        obj,
+        name,
+        conductorDriven: isConductorDriven,
+        api: api as unknown as { disabled: boolean },
+      });
     }
     this.setSlidersDisabled(this.settings.conductor);
   }

@@ -72,8 +72,8 @@ export class LavaLamp implements VisualScene {
   private uBlob6 = uniform(new THREE.Vector4(1.1, -1.2, -1.4, 1.0));
   private uBlob7 = uniform(new THREE.Vector4(-0.3, 0.6, -1.8, 0.9));
 
-  // Dynamic audio & camera uniforms
-  private uCamPos = uniform(new THREE.Vector3(0, 0, 0));
+  // Dynamic audio & camera uniforms (camera initialized at 0.2)
+  private uCamPos = uniform(new THREE.Vector3(0, 0.2, 2.4));
   private uLookTarget = uniform(new THREE.Vector3(0, 0.2, -3.0));
   private uViscosity = uniform(1.1);
   private uGlow = uniform(1.2);
@@ -101,7 +101,7 @@ export class LavaLamp implements VisualScene {
 
   private time = 0;
   private camAngle = 0;
-  private camPitch = 0;
+  private camPitch = 0.2; // Initialized to 0.2
   private camDist = 2.4;
   private bulbPulse = 0;
   private inhale = 0;
@@ -413,7 +413,7 @@ export class LavaLamp implements VisualScene {
     const desiredDist = Math.max(1.8, Math.min(3.8, 2.6 + slowBreathe + energyZoom));
     this.camDist += (desiredDist - this.camDist) * Math.min(1, subDt * 2.2);
 
-    this.camPitch = Math.sin(this.time * 0.08) * 0.35 + (features.centroid - 0.5) * 0.5;
+    this.camPitch = 0.2 + Math.sin(this.time * 0.08) * 0.35 + (features.centroid - 0.5) * 0.5;
 
     // Camera floats inside the fluid space
     const camX = Math.sin(this.camAngle) * this.camDist;
@@ -436,8 +436,8 @@ export class LavaLamp implements VisualScene {
   }
 
   updateCamera(camera: THREE.PerspectiveCamera): void {
-    camera.position.set(0, 0, 10);
-    camera.lookAt(0, 0, 0);
+    camera.position.set(0, 0.2, 10);
+    camera.lookAt(0, 0.2, 0);
   }
 
   applyPalette(p: Palette): void {

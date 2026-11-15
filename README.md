@@ -1,78 +1,124 @@
-# personance
+# Personance
 
-A song-aware music visualizer. Drop in a track and it *learns* it before playing — neural beat
-grid, section structure, energy arc, key/mode, valence/arousal, and a palette pulled from the
-cover art — then choreographs mathematical art to it: the visuals inhale in the last bar before
-a drop and explode on impact. Optionally, Claude directs the whole show.
+A song-aware, real-time audio visualizer built on **Three.js WebGPU** and **TSL (Three.js Shading Language)** compute shaders.
 
-Successor to Vibing-Audiovisual (C++/Cinder, 2020) and audiovisual-web (p5.js). Built on
-Three.js WebGPU with TSL compute.
+Drop in any audio track and Personance *learns* it before playing — extracting a neural beat grid, section structure, energy arc, key/mode, emotional valence/arousal, and an OKLab-harmonized palette extracted from the album art. It then choreographs mathematical art to the music in real time: visuals inhale in the final bar before a drop and explode on impact.
 
-## Controls
+---
+
+## Highlights & Features
+
+- **10 GPU-Accelerated Scenes**: Raymarched metaballs, strange attractors, black hole gravitational lensing, KIFS fractals, slime molds, 32k boids murmurations, and Rosensweig ferrofluid spikes.
+- **Perturbation-Theory Deep Zoom (Beyond f32)**: Mandelbrot dive in the Fractal scene evaluates a 64-bit double-precision reference orbit on the CPU and integrates $\Delta_{n+1} = 2 Z_n \Delta_n + \Delta_n^2 + \delta_0$ on the GPU, achieving razor-sharp deep zoom down to **$10^{-12}$ and beyond** without single-precision float pixelation.
+- **Perceptual OKLab Palette Interpolation**: Colors across the interface, Fractal, Ferrofluid, and Boids interpolate in Björn Ottosson's **OKLab & OKLCH** color spaces, eliminating desaturated muddy gray midpoints and brightness dips.
+- **Client-Side Neural Beat Tracking**: Integrates the state-of-the-art [Beat This!](https://github.com/CPJKU/beat_this) (ISMIR 2024) ONNX model running locally via `onnxruntime-web` for downbeat and non-4/4 rhythm tracking.
+- **Choreography Signals**: Built-in conductor maps song energy to `pulse` (per beat), `inhale` (anticipation ramp before loud sections), and `drop` (transient explosion).
+- **Full Playlist Management**: Custom playlists, drag-and-drop file queues, IndexedDB audio caching, procedurally generated vinyl record sleeve art, shuffle, and repeat modes.
+- **Live Audio Input**: Real-time microphone and tab/system loopback audio capture with real-time onset detection.
+- **Optional LLM Director**: Connect your Anthropic API key to let Claude design section-by-section scene plans and dynamic conductor mappings tailored to the song's emotional arc.
+
+---
+
+## Visual Scenes (1–10)
+
+1. **Ferrofluid** (`ferrofluid`)  
+   A suspended 3D magnetic liquid blob with genuine Rosensweig instability spikes and obsidian chrome mirror reflections. Glancing angles display thin-film oil sheen iridescence with **OKLab spectral color dispersion**.
+
+2. **Lava Lamp** (`lavalamp`)  
+   Inside the warm, luminous core of a lava lamp. Raymarched metaball globules fuse, stretch, and undergo thermal convection driven by bass transients. Initial camera elevation set at $0.2$.
+
+3. **Particles** (`particles`)  
+   100,000 curl-noise flow-field particles bound within a breathing geometric shell, churning with the music's spectral flux.
+
+4. **Terrain** (`terrain`)  
+   Infinite ridged-FBM mountainous landscape with domain-warped scrolling, atmospheric depth fog, and beat-reactive wireframe terrain hulls.
+
+5. **Fractal** (`fractal`)  
+   Full-screen animated Julia set overview and Mandelbrot deep dive with **Perturbation Theory**. Pushes the zoom floor 8 orders of magnitude past standard $f32$ limits (down to $10^{-12}$). Filaments and contour glows flow through **OKLab perceptual ramps**.
+
+6. **Physarum** (`physarum`)  
+   200,000-agent Jeff Jones slime mold simulation. Agents deposit and follow chemoattractant trails in a ping-pong diffuse-and-decay compute pipeline, creating living neon vein networks.
+
+7. **Attractor** (`attractor`)  
+   150,000 particles evolving through strange-attractor phase spaces (Lorenz, Thomas, Aizawa, Halvorsen). Morphs smoothly between attractor families on section transitions.
+
+8. **KIFS** (`kifs`)  
+   Raymarched kaleidoscopic iterated function system (KIFS). Fold angles ride the song's spectral centroid, and drops kick rotational symmetries.
+
+9. **Black Hole** (`blackhole`)  
+   Relativistically raymarched Kerr black hole with gravitational lensing, photon sphere, and an accretion disk whose turbulence and flares surge with musical energy.
+
+10. **Boids** (`boids`)  
+    32,768-agent GPU murmuration flocking via counting-sort spatial grids. Flight speeds trigger **OKLab 3-stop perceptual color ramping** as panic waves scatter the flock on beat drops.
+
+---
+
+## Controls & Keyboard Shortcuts
 
 | Key | Action |
 | --- | --- |
-| **drag & drop** | load any audio file |
-| **O** | open file picker |
-| **L** | live system audio (Chromium screen-share — tick "Share tab audio") |
-| **M** | live input device (mic, or a [BlackHole](https://github.com/ExistentialAudio/BlackHole) loopback for cross-browser system audio) |
-| **Space** | play / pause |
-| **1–8** | switch scene manually |
-| **`** (backtick) | dev panel — live param tuning, scene/conductor control, LLM director settings |
+| **Space** | Play / Pause |
+| **A / D** | Previous / Next scene (or click scene 1–10 in the HUD bar) |
+| **0** | Toggle auto-rotation on section changes (`Auto ↺`) |
+| **Q** | Open / Close Playlist drawer |
+| **N / ]** | Next track in playlist |
+| **P / [** | Previous track in playlist |
+| **← / →** | Seek $-5\text{s}$ / $+5\text{s}$ |
+| **↑ / ↓** | Volume $\pm 10\%$ |
+| **O** | Open audio file picker |
+| **L** | Capture live tab / system audio |
+| **M** | Capture live microphone input |
+| **F** | Toggle Fullscreen |
+| **H** | Cinema mode (toggle HUD visibility) |
+| **`** (backtick) | Toggle Tweakpane dev panel |
+| **?** | Shortcuts & info modal |
+| **Esc** | Close active modals & drawers |
 
-Scenes auto-rotate on section boundaries (by energy band, or by the director's plan).
+---
 
-## Scenes (keys 1–8)
+## Intelligence & Analysis Pipeline
 
-1. **particles** — 100k curl-noise flow-field particles in a breathing shell
-2. **boids** — 32k-agent GPU murmuration (counting-sort spatial grid); calm music pulls it tight, drops scatter it
-3. **terrain** — ridged-FBM landscape, domain-scrolled, palette fog
-4. **fractal** — animated Julia set; the c-parameter orbits with the music, drops flip the gradient
-5. **physarum** — 120k-agent slime mold forming living neon vein networks
-6. **attractor** — 150k particles in strange-attractor phase spaces (Lorenz / Thomas / Aizawa / Halvorsen); every section morphs to the next attractor
-7. **kifs** — raymarched kaleidoscopic IFS fractal; the fold angle rides the spectral centroid, drops kick the rotation
-8. **blackhole** — gravitationally lensed accretion disk; bass feeds the disk, beats orbit a hot flare, drops surge gravity itself
+1. **Classical DSP** (Web Worker, ~1.5–2s per song):  
+   Calculates FFT feature curves, spectral flux onsets, autocorrelation tempo, phase-fitted beat grids, Foote novelty matrix section segmentation, and Krumhansl-Schmuckler key/mode detection (yielding valence & arousal estimates).
+2. **Neural Beat Tracking** ([Beat This!](https://github.com/CPJKU/beat_this), ISMIR 2024):  
+   Evaluates an ONNX transformer model locally on the WebGPU execution provider to detect downbeats and non-standard meters (such as 3/4 or odd time signatures), hot-swapping the refined grid mid-playback.
+3. **OKLab / OKLCH Color Engine**:  
+   Extracts vibrant swatches from ID3 cover art or synthesizes harmonic palettes in OKLCH. Palette transitions between song sections lerp through OKLab space to avoid muddy desaturation.
+4. **LLM Director (Optional)**:  
+   With an Anthropic API key provided in the dev panel, Claude reads song analysis metrics and crafts a bespoke scene progression plan and conductor curve configuration.
 
-All scenes are palette-aware and wired to three choreography signals: `pulse` (every beat),
-`inhale` (ramps through the last ~1.2 s before a louder section), and `drop` (fires on impact).
-Post stack: beat-modulated bloom → afterimage trails → chromatic aberration on drops.
-
-## The intelligence pipeline
-
-1. **Classical DSP** (Web Worker, ~2 s/song): FFT feature curves, spectral-flux onsets,
-   autocorrelation tempo + phase-fitted beat grid, Foote novelty sections, Krumhansl-Schmuckler
-   key/mode → valence/arousal. Playback starts on this.
-2. **Neural beats** ([Beat This!](https://github.com/CPJKU/beat_this), ISMIR 2024, MIT) via
-   onnxruntime-web on the WebGPU EP: beat + downbeat grid that handles non-4/4 and non-EDM
-   material. The 83 MB model downloads once (Cache API) and the refined grid hot-swaps in
-   mid-playback. Detected a corrido's 3/4 meter that classical autocorrelation missed entirely.
-3. **Palette**: ID3 cover art → node-vibrant swatches → semantic roles. No art? The song's
-   emotion paints a synthetic palette (valence picks the hue, arousal the saturation).
-4. **LLM director** (optional, BYO Anthropic key in the panel): one Messages API call per song —
-   Claude reads bpm/sections/energy/emotion/palette and returns a mood, a scene-per-section
-   plan, and per-scene conductor configs. Schema-validated, range-clamped, falls back to
-   defaults. Claude never draws; the math stays the art.
-
-Everything runs client-side. Analysis results cache in IndexedDB by content hash.
+---
 
 ## Architecture
 
-- `src/types/song-analysis.ts` — **SongAnalysis**, the stable engine-swappable contract
-- `src/audio/` — one **FrameFeatures** bus; `FilePlayer` (pre-analyzed, with beat lookahead) and `LiveProvider` (realtime flux onsets + adaptive normalization) are interchangeable
-- `src/conductor/` — feature→parameter mappings as *data* (range/curve/attack/release) + derived signals; the director emits configs into this layer
-- `src/scenes/` — each scene declares typed params; the conductor (or your sliders) drives them
-
-## Run locally
-
-```sh
-npm install
-npm run dev   # http://localhost:3000
+```
+src/
+├── analysis/         # Audio DSP, Beat This! ONNX integration, OKLab math & palette extraction
+│   ├── oklab.ts      # CPU OKLab/OKLCH conversions, perceptual lighten/darken, CSS gradients
+│   ├── oklab-tsl.ts  # WebGPU/TSL shader nodes for GPU perceptual color interpolation
+│   └── palette.ts    # Emotion palette synthesis and dynamic UI styling
+├── audio/            # Audio feature extraction bus, FilePlayer, and LiveProvider
+├── conductor/        # Musical choreography engine, signal derivation, and LLM director
+├── playlist/         # Playlist manager, IndexedDB track storage, and vinyl cover generator
+├── post/             # Post-processing pipeline (bloom, chromatic aberration, trails)
+├── scenes/           # 10 WebGPU visual scenes with typed parameter schemas
+├── types/            # SongAnalysis and pipeline data contracts
+└── ui/               # Tweakpane dev panel with live parameter tuning and scientific readouts
 ```
 
-The dev panel (backtick) is the tuning workflow: toggle "conductor drives" off, drag scene
-params live, bake good values back into `src/conductor/configs.ts`.
+---
 
-## Roadmap
+## Running Locally
 
-- MusiCNN neural emotion, cached Demucs stems → per-stem scenes (boids on the vocal line)
-- OKLab palette interpolation, perturbation-theory deep zoom (beyond f32)
+```bash
+# Install dependencies
+npm install
+
+# Start Vite dev server on port 3000
+npm run dev
+
+# Build production bundle with type checking
+npm run build
+```
+
+Open `http://localhost:3000` in a WebGPU-capable browser (Chromium-based browsers recommended).
