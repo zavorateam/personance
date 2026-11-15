@@ -5,6 +5,7 @@ import { Conductor } from '../conductor/conductor';
 import { DEFAULT_CONFIGS } from '../conductor/configs';
 import type { DirectorPlan, SceneSpec } from '../conductor/director';
 import type { SceneContext, VisualScene } from './scene';
+import type { SceneDescriptor } from './registry';
 
 const FADE_CALM = 1.1;
 const FADE_DROP = 0.22;
@@ -35,11 +36,18 @@ function oklabToRgb(L: number, a: number, b: number, out: THREE.Color): void {
 }
 
 /**
- * Owns all scenes (kept initialized; visibility-toggled), the active
- * conductor wiring, fade transitions, and section-driven auto-switching.
+ * Owns lazy scene descriptors, loads & initializes ONLY the needed scene on demand,
+ * disposes inactive scenes to keep GPU memory bounded (1 resident on mobile, 2 on desktop),
+ * and manages conductor wiring, fade transitions, and section-driven auto-switching.
  */
 export class SceneManager {
-  private scenes: VisualScene[] = [];
+  private ctx: SceneContext | null = null;
+  private descriptors: SceneDescriptor[] = [];
+  private loaded = new Map<number, VisualScene>();
+  private inFlight = new Map<number, Promise<VisualScene>>();
+  private lruOrder: number[] = [];
+  private maxResident = 2;
+
   private activeIndex = 0;
   private pendingIndex: number | null = null;
   private fade = 1; // 1 = fully visible, dips to 0 mid-transition
@@ -53,17 +61,93 @@ export class SceneManager {
    *  changing scenes — the conductor keeps directing within the scene. */
   autoRotate = true;
   onAutoRotateChanged: ((on: boolean) => void) | null = null;
+  onSceneLoadStateChanged: ((loading: boolean, label?: string) => void) | null = null;
 
-  async init(ctx: SceneContext, scenes: VisualScene[]): Promise<void> {
-    this.scenes = scenes;
-    for (const s of scenes) await s.init(ctx);
-    scenes.forEach((s, i) => s.setVisible(i === this.activeIndex));
+  async init(
+    ctx: SceneContext,
+    descriptors: SceneDescriptor[],
+    initialIndex = 0,
+  ): Promise<void> {
+    this.ctx = ctx;
+    this.descriptors = descriptors;
+    this.maxResident = ctx.isMobile ? 1 : 2;
+    this.activeIndex = Math.max(0, Math.min(descriptors.length - 1, initialIndex));
+
+    const first = await this.ensureLoaded(this.activeIndex);
+    first.setVisible(true);
+    this.touchLru(this.activeIndex);
 
     this.conductor = new Conductor(
-      scenes[this.activeIndex],
-      this.configFor(scenes[this.activeIndex].name),
+      first,
+      this.configFor(first.name),
     );
     this.conductor.onSectionChange = (start, energy) => this.onSection(start, energy);
+  }
+
+  private touchLru(index: number): void {
+    this.lruOrder = this.lruOrder.filter((i) => i !== index);
+    this.lruOrder.push(index);
+  }
+
+  private evictInactive(): void {
+    while (this.lruOrder.length > this.maxResident) {
+      const oldest = this.lruOrder.find((idx) => idx !== this.activeIndex && idx !== this.pendingIndex);
+      if (oldest === undefined) break;
+      const sc = this.loaded.get(oldest);
+      if (sc) {
+        sc.setVisible(false);
+        sc.dispose();
+        this.loaded.delete(oldest);
+      }
+      this.lruOrder = this.lruOrder.filter((i) => i !== oldest);
+    }
+  }
+
+  private ensureLoaded(index: number): Promise<VisualScene> {
+    const existing = this.loaded.get(index);
+    if (existing) return Promise.resolve(existing);
+
+    const running = this.inFlight.get(index);
+    if (running) return running;
+
+    const desc = this.descriptors[index];
+    const ctx = this.ctx;
+    if (!desc || !ctx) {
+      return Promise.reject(new Error(`Invalid scene index: ${index}`));
+    }
+
+    this.onSceneLoadStateChanged?.(true, desc.label);
+    const task = (async () => {
+      const scene = await desc.load();
+      await scene.init(ctx);
+      scene.setVisible(index === this.activeIndex);
+      if (this.basePalette) {
+        scene.applyPalette?.(this.currentPaletteSnapshot());
+      }
+      this.loaded.set(index, scene);
+      this.inFlight.delete(index);
+      this.onSceneLoadStateChanged?.(false, desc.label);
+      return scene;
+    })().catch((err) => {
+      this.inFlight.delete(index);
+      this.onSceneLoadStateChanged?.(false, desc.label);
+      throw err;
+    });
+
+    this.inFlight.set(index, task);
+    return task;
+  }
+
+  private currentPaletteSnapshot(): Palette {
+    const p = this.basePalette!;
+    const hex = (c: THREE.Color): string => `#${c.getHexString()}`;
+    return {
+      ...p,
+      background: hex(this.currentCols.background),
+      primary: hex(this.currentCols.primary),
+      secondary: hex(this.currentCols.secondary),
+      accent: hex(this.currentCols.accent),
+    };
   }
 
   private configFor(name: string) {
@@ -71,18 +155,16 @@ export class SceneManager {
   }
 
   get sceneSpecs(): SceneSpec[] {
-    return this.scenes.map((s) => ({ name: s.name, params: s.params }));
+    return this.descriptors.map((d) => ({ name: d.name, params: d.params }));
   }
 
   applyDirectorPlan(plan: DirectorPlan): void {
     this.directorPlan = plan;
     this.conductor?.setConfig(this.configFor(this.active.name));
-    // Jump to the plan's opening scene if it differs — unless the user
-    // manually locked a scene while the plan was in flight; they win.
     if (!this.autoRotate) return;
     const opening = plan.scenePlan[0];
     if (opening && opening.scene !== this.active.name) {
-      this.switchTo(this.scenes.findIndex((s) => s.name === opening.scene));
+      this.switchTo(this.descriptors.findIndex((d) => d.name === opening.scene));
     }
   }
 
@@ -92,7 +174,9 @@ export class SceneManager {
   }
 
   get active(): VisualScene {
-    return this.scenes[this.activeIndex];
+    const s = this.loaded.get(this.activeIndex);
+    if (!s) throw new Error(`Active scene ${this.activeIndex} not loaded`);
+    return s;
   }
 
   get signals(): { pulse: number; downbeat: number; inhale: number; drop: number } {
@@ -117,11 +201,15 @@ export class SceneManager {
   onSceneChanged: ((scene: VisualScene) => void) | null = null;
 
   get sceneNames(): string[] {
-    return this.scenes.map((s) => s.name);
+    return this.descriptors.map((d) => d.name);
+  }
+
+  get sceneLabels(): string[] {
+    return this.descriptors.map((d) => d.label);
   }
 
   applyPalette(palette: Palette): void {
-    for (const s of this.scenes) s.applyPalette?.(palette);
+    for (const s of this.loaded.values()) s.applyPalette?.(palette);
   }
 
   // ---- Living palette: per-section hue/sat variance, smoothly lerped ----
@@ -162,10 +250,7 @@ export class SceneManager {
     const p = this.basePalette;
     if (!p) return;
     const wobble = Math.abs((Math.sin(startSec * 12.9898) * 43758.5453) % 1);
-    // Real hue travel: up to ±90° per section, energy pushes warmer.
     const dh = (energy - 0.5) * 0.2 + (wobble - 0.5) * 0.3;
-    // Every other-ish section, rotate which hue plays which role —
-    // primary/accent/secondary swap families instead of staying fixed.
     const rotateRoles = wobble > 0.55;
     const src: Record<string, string> = rotateRoles
       ? { background: p.background, primary: p.accent, secondary: p.primary, accent: p.secondary }
@@ -191,7 +276,6 @@ export class SceneManager {
     for (const name of this.colNames) {
       const c = this.currentCols[name];
       const t = this.targetCols[name];
-      // Lerp in OKLab: hue paths stay vivid instead of sagging to gray.
       const [cl, ca, cb] = rgbToOklab(c);
       const [tl, ta, tb] = rgbToOklab(t);
       oklabToRgb(cl + (tl - cl) * k, ca + (ta - ca) * k, cb + (tb - cb) * k, c);
@@ -200,18 +284,10 @@ export class SceneManager {
         Math.abs(c.r - t.r) + Math.abs(c.g - t.g) + Math.abs(c.b - t.b),
       );
     }
-    // Push to scenes at ~10 Hz while transitioning.
     this.paletteAccum += dt;
     if (this.paletteAccum > 0.1) {
       this.paletteAccum = 0;
-      const hex = (c: THREE.Color): string => `#${c.getHexString()}`;
-      this.applyPalette({
-        ...this.basePalette,
-        background: hex(this.currentCols.background),
-        primary: hex(this.currentCols.primary),
-        secondary: hex(this.currentCols.secondary),
-        accent: hex(this.currentCols.accent),
-      });
+      this.applyPalette(this.currentPaletteSnapshot());
       if (maxDelta < 0.01) this.paletteDirty = false;
     }
   }
@@ -221,42 +297,36 @@ export class SceneManager {
       this.autoRotate = false;
       this.onAutoRotateChanged?.(false);
     }
-    if (index === this.activeIndex || index < 0 || index >= this.scenes.length) return;
+    if (index < 0 || index >= this.descriptors.length) return;
+    if (index === this.activeIndex && this.pendingIndex === null) return;
     this.pendingIndex = index;
-    // Drops cut hard; calm switches dissolve.
     const drop = this.conductor?.signals.drop ?? 0;
     this.fadeSec = drop > 0.4 ? FADE_DROP : FADE_CALM;
+    // Start lazy loading immediately in background while current scene fades out
+    void this.ensureLoaded(index).catch((err) => {
+      console.error(`Failed to load scene ${this.descriptors[index]?.name}:`, err);
+      if (this.pendingIndex === index) this.pendingIndex = null;
+    });
   }
 
   setAutoRotate(on: boolean): void {
     this.autoRotate = on;
   }
 
-  /**
-   * Section-boundary hook: big energy shifts move to the scene whose
-   * temperament matches — terrain for quiet, particles for mid,
-   * boids for high-energy sections.
-   */
   private onSection(startSec: number, energy: number): void {
-    // Palette breathes with every section regardless of scene lock.
     this.retargetPalette(startSec, energy);
-    // Manual scene choice wins until the user hands control back.
     if (!this.autoRotate) return;
-    // Director plan takes precedence over the energy-band heuristic.
     if (this.directorPlan) {
       const entry = this.directorPlan.scenePlan.find((e) => Math.abs(e.startSec - startSec) < 2);
       if (entry) {
-        const target = this.scenes.findIndex((s) => s.name === entry.scene);
+        const target = this.descriptors.findIndex((d) => d.name === entry.scene);
         if (target >= 0) this.switchTo(target);
         return;
       }
     }
     if (this.lastSwitchEnergy >= 0 && Math.abs(energy - this.lastSwitchEnergy) < 0.18) return;
     this.lastSwitchEnergy = energy;
-    // Song-relative energy alone can't see absolute intensity: a flat-loud
-    // breakcore track would idle in the mid band forever. Blend in arousal.
     const effective = energy * 0.6 + this.arousal * 0.4;
-    // Two candidates per energy band; prefer whichever isn't already up.
     const band =
       effective > 0.5
         ? ['ferrofluid', 'blackhole', 'fractal', 'kifs', 'attractor']
@@ -264,22 +334,28 @@ export class SceneManager {
           ? ['ferrofluid', 'particles', 'blackhole', 'attractor', 'physarum']
           : ['ferrofluid', 'terrain', 'physarum', 'kifs'];
     const pick = band.find((n) => n !== this.active.name) ?? band[0];
-    const target = this.scenes.findIndex((s) => s.name === pick);
+    const target = this.descriptors.findIndex((d) => d.name === pick);
     if (target >= 0) this.switchTo(target);
   }
 
   update(features: FrameFeatures, dt: number): void {
-    // Fade out toward a pending switch, then flip visibility and fade in.
     if (this.pendingIndex !== null) {
       this.fade = Math.max(0, this.fade - dt / this.fadeSec);
-      if (this.fade === 0) {
-        this.active.setVisible(false);
+      const nextScene = this.loaded.get(this.pendingIndex);
+      if (this.fade === 0 && nextScene) {
+        const prevScene = this.loaded.get(this.activeIndex);
+        prevScene?.setVisible(false);
         this.activeIndex = this.pendingIndex;
         this.pendingIndex = null;
-        this.active.setVisible(true);
-        this.conductor?.setScene(this.active);
-        this.conductor?.setConfig(this.configFor(this.active.name));
-        this.onSceneChanged?.(this.active);
+        nextScene.setVisible(true);
+        this.touchLru(this.activeIndex);
+        if (this.basePalette) {
+          nextScene.applyPalette?.(this.currentPaletteSnapshot());
+        }
+        this.conductor?.setScene(nextScene);
+        this.conductor?.setConfig(this.configFor(nextScene.name));
+        this.onSceneChanged?.(nextScene);
+        this.evictInactive();
       }
     } else if (this.fade < 1) {
       this.fade = Math.min(1, this.fade + dt / this.fadeSec);

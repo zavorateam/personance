@@ -114,7 +114,7 @@ export class FerrofluidBlob implements VisualScene {
   private burst = 0;
 
   // Render pipeline
-  private rt: THREE.RenderTarget;
+  private rt: THREE.RenderTarget | null = null;
   private fboScene = new THREE.Scene();
   private fboCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
   private marchQuad: THREE.Mesh | null = null;
@@ -123,16 +123,6 @@ export class FerrofluidBlob implements VisualScene {
   private ctx: SceneContext | null = null;
 
   private paramValues: Record<string, number> = {};
-
-  constructor() {
-    this.rt = new THREE.RenderTarget(RT_W, RT_H, {
-      type: THREE.HalfFloatType,
-      format: THREE.RGBAFormat,
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      depthBuffer: false,
-    });
-  }
 
   getParam(name: string): number {
     if (name === 'oklab') return this.uOklab.value as number;
@@ -159,11 +149,21 @@ export class FerrofluidBlob implements VisualScene {
 
   init(ctx: SceneContext): void {
     this.ctx = ctx;
+    const rtW = Math.round(RT_W * ctx.qualityScale);
+    const rtH = Math.round(RT_H * ctx.qualityScale);
+    const marchSteps = ctx.isMobile ? 48 : MARCH_STEPS;
+    this.rt = new THREE.RenderTarget(rtW, rtH, {
+      type: THREE.HalfFloatType,
+      format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: false,
+    });
 
     const material = new THREE.MeshBasicNodeMaterial();
     material.colorNode = Fn(() => {
       // Perspective camera ray looking from below upwards at the ferrofluid
-      const ndc = uv().mul(2).sub(vec2(1, 1)).mul(vec2(RT_W / RT_H, 1));
+      const ndc = uv().mul(2).sub(vec2(1, 1)).mul(vec2(rtW / rtH, 1));
       const ro = vec3(this.uCamPos.x, this.uCamPos.y, this.uCamPos.z);
       const fwd = normalize(this.uLookTarget.sub(ro));
       const right = normalize(vec3(fwd.z, 0, fwd.x.negate()));
@@ -236,7 +236,7 @@ export class FerrofluidBlob implements VisualScene {
       const pos = vec3(0, 0, 0).toVar();
       const minApproach = float(10.0).toVar();
 
-      Loop({ start: 0, end: MARCH_STEPS, type: 'int' }, () => {
+      Loop({ start: 0, end: marchSteps, type: 'int' }, () => {
         pos.assign(ro.add(rd.mul(t)));
 
         const d = sdFerrofluid(pos);
@@ -341,7 +341,7 @@ export class FerrofluidBlob implements VisualScene {
 
   update(features: FrameFeatures, dt: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.displayMesh?.visible || !this.marchQuad) return;
+    if (!ctx || !this.displayMesh?.visible || !this.marchQuad || !this.rt) return;
 
     const subDt = Math.min(dt, 0.04);
     this.time += dt;
@@ -487,11 +487,19 @@ export class FerrofluidBlob implements VisualScene {
   }
 
   dispose(): void {
+    if (this.marchQuad) {
+      this.fboScene.remove(this.marchQuad);
+      this.marchQuad.geometry.dispose();
+      (this.marchQuad.material as THREE.Material).dispose();
+      this.marchQuad = null;
+    }
     if (this.displayMesh && this.ctx) {
       this.ctx.scene.remove(this.displayMesh);
       this.displayMesh.geometry.dispose();
       (this.displayMesh.material as THREE.Material).dispose();
+      this.displayMesh = null;
     }
-    this.rt.dispose();
+    this.rt?.dispose();
+    this.rt = null;
   }
 }

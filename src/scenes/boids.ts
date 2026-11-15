@@ -109,10 +109,11 @@ export class Boids implements VisualScene {
 
   async init(ctx: SceneContext): Promise<void> {
     this.ctx = ctx;
+    const count = ctx.isMobile ? 12_288 : COUNT;
 
-    const positions = instancedArray(COUNT, 'vec3');
-    const velocities = instancedArray(COUNT, 'vec3');
-    const sorted = instancedArray(COUNT, 'uint');
+    const positions = instancedArray(count, 'vec3');
+    const velocities = instancedArray(count, 'vec3');
+    const sorted = instancedArray(count, 'uint');
     const counts = instancedArray(CELLS, 'uint').toAtomic();
     const fills = instancedArray(CELLS, 'uint').toAtomic();
     const countsPlain = instancedArray(CELLS, 'uint');
@@ -142,7 +143,7 @@ export class Boids implements VisualScene {
             hash(instanceIndex.add(33)).sub(0.5),
           ).mul(2),
         );
-    })().compute(COUNT);
+    })().compute(count);
 
     const isWebGPU = (ctx.renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
 
@@ -155,7 +156,7 @@ export class Boids implements VisualScene {
       const countPass = Fn(() => {
         const cell = cellOf(positions.element(instanceIndex));
         atomicAdd(counts.element(cell), uint(1));
-      })().compute(COUNT);
+      })().compute(count);
 
       const copyPass = Fn(() => {
         const loaded = atomicLoad(counts.element(instanceIndex)) as unknown as ReturnType<typeof uint>;
@@ -175,7 +176,7 @@ export class Boids implements VisualScene {
         const cell = cellOf(positions.element(instanceIndex));
         const slot = atomicAdd(fills.element(cell), uint(1)) as unknown as ReturnType<typeof uint>;
         sorted.element(starts.element(cell).add(slot)).assign(instanceIndex);
-      })().compute(COUNT);
+      })().compute(count);
 
       const simPass = Fn(() => {
         const pos = positions.element(instanceIndex);
@@ -255,7 +256,7 @@ export class Boids implements VisualScene {
         vel.assign(vel.div(speed).mul(speed.clamp(minSpeed, maxSpeed)));
 
         pos.addAssign(vel.mul(this.uDelta));
-      })().compute(COUNT);
+      })().compute(count);
 
       this.passes = [clearPass, countPass, copyPass, scanPass, scatterPass, simPass];
     } else {
@@ -280,7 +281,7 @@ export class Boids implements VisualScene {
         const minSpeed = float(1.0).mul(this.uSpeed);
         vel.assign(vel.div(speed).mul(speed.clamp(minSpeed, maxSpeed)));
         pos.addAssign(vel.mul(this.uDelta));
-      })().compute(COUNT);
+      })().compute(count);
 
       this.passes = [simPassSimple];
     }
@@ -309,7 +310,7 @@ export class Boids implements VisualScene {
     const d = uv().distance(0.5);
     material.opacityNode = smoothstep(0.5, 0.1, d).mul(this.uFade).mul(0.55);
 
-    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, COUNT);
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, count);
     mesh.frustumCulled = false;
     this.mesh = mesh;
     ctx.scene.add(mesh);

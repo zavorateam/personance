@@ -10,5 +10,14 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/three')) return 'vendor-three';
+          if (id.includes('node_modules/tweakpane')) return 'vendor-tweakpane';
+          if (id.includes('node_modules/onnxruntime-web')) return 'vendor-onnx';
+        },
+      },
+    },
   },
 });

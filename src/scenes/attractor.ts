@@ -82,10 +82,11 @@ export class Attractor implements VisualScene {
 
   async init(ctx: SceneContext): Promise<void> {
     this.ctx = ctx;
+    const count = ctx.isMobile ? 84_000 : COUNT;
 
-    const positions = instancedArray(COUNT, 'vec3');
-    const seeds = instancedArray(COUNT, 'float');
-    const speeds = instancedArray(COUNT, 'float');
+    const positions = instancedArray(count, 'vec3');
+    const seeds = instancedArray(count, 'float');
+    const speeds = instancedArray(count, 'float');
 
     const respawn = (seedOffset: number) => {
       const a = hash(instanceIndex.add(seedOffset)).mul(Math.PI * 2);
@@ -101,7 +102,7 @@ export class Attractor implements VisualScene {
     const initCompute = Fn(() => {
       positions.element(instanceIndex).assign(respawn(0));
       seeds.element(instanceIndex).assign(hash(instanceIndex));
-    })().compute(COUNT);
+    })().compute(count);
 
     // Each field as a builder; evaluated only inside its uniform branch
     // (computing all four then selecting wasted ~4x the math).
@@ -194,7 +195,7 @@ export class Attractor implements VisualScene {
       If(len.greaterThan(45).or(len.lessThan(0.05)), () => {
         pos.assign(respawn(311));
       });
-    })().compute(COUNT);
+    })().compute(count);
     this.updateCompute = update;
 
     const material = new THREE.SpriteNodeMaterial({
@@ -220,7 +221,7 @@ export class Attractor implements VisualScene {
       .mul(this.uFade);
     material.scaleNode = float(0.035).add(seedAttr.mul(0.03));
 
-    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, COUNT);
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, count);
     mesh.frustumCulled = false;
     this.mesh = mesh;
     ctx.scene.add(mesh);

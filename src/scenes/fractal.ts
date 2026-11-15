@@ -267,7 +267,7 @@ export class Fractal implements VisualScene {
         // --- Mode 0: Julia Overview (Orbiting C) ---
         const p = delta0.add(vec2(this.uCenter.x, this.uCenter.y));
         z.assign(p);
-        Loop({ start: 0, end: MAX_ITER, type: 'int' }, () => {
+        Loop({ start: 0, end: ctx.isMobile ? 168 : MAX_ITER, type: 'int' }, () => {
           z.assign(
             vec2(z.x.mul(z.x).sub(z.y.mul(z.y)), z.x.mul(z.y).mul(2)).add(
               vec2(this.uC.x, this.uC.y),
@@ -289,7 +289,7 @@ export class Fractal implements VisualScene {
           const delta = vec2(0, 0).toVar();
           const iterInt = int(0).toVar();
 
-          Loop({ start: 0, end: MAX_ITER, type: 'int' }, () => {
+          Loop({ start: 0, end: ctx.isMobile ? 168 : MAX_ITER, type: 'int' }, () => {
             const Z = textureLoad(this.refOrbitTexture, ivec2(iterInt, 0)).xy;
             const curZ = Z.add(delta);
             const m = curZ.dot(curZ);
@@ -322,7 +322,7 @@ export class Fractal implements VisualScene {
           // Fallback direct f32 (collapses at zoom < 1e-4)
           const p = delta0.add(vec2(this.uCenter.x, this.uCenter.y));
           z.assign(vec2(0, 0));
-          Loop({ start: 0, end: MAX_ITER, type: 'int' }, () => {
+          Loop({ start: 0, end: ctx.isMobile ? 168 : MAX_ITER, type: 'int' }, () => {
             z.assign(vec2(z.x.mul(z.x).sub(z.y.mul(z.y)), z.x.mul(z.y).mul(2)).add(p));
             trap.assign(trap.min(z.dot(z)));
             If(z.dot(z).greaterThan(6), () => {

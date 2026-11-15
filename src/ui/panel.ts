@@ -64,6 +64,9 @@ export class DevPanel {
     song.addBinding(this.info, 'key', { readonly: true });
     song.addBinding(this.info, 'feel', { readonly: true });
 
+    this.settings.scene = manager.activeIndexValue;
+    this.settings.autoScenes = manager.autoRotate;
+
     this.pane
       .addBinding(this.settings, 'scene', {
         options: Object.fromEntries(manager.sceneNames.map((n, i) => [n, i])),
@@ -85,7 +88,9 @@ export class DevPanel {
         if (this.syncing) return;
         manager.setAutoRotate(e.value);
       });
+    const prevOnAutoRotate = manager.onAutoRotateChanged;
     manager.onAutoRotateChanged = (on) => {
+      prevOnAutoRotate?.(on);
       this.syncing = true;
       this.settings.autoScenes = on;
       this.pane.refresh();
@@ -115,7 +120,9 @@ export class DevPanel {
     });
 
     this.rebindScene(manager.active);
+    const prevOnSceneChanged = manager.onSceneChanged;
     manager.onSceneChanged = (scene) => {
+      prevOnSceneChanged?.(scene);
       this.syncing = true;
       this.settings.scene = manager.activeIndexValue;
       this.rebindScene(scene);

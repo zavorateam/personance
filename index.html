@@ -2,7 +2,9 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="theme-color" content="#050510" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>Personance Audio Visualizer</title>
     <meta name="description" content="A high-performance real-time audio visualizer with multiple scenes including black holes, particles, and fractals." />
     <meta property="og:title" content="Personance Audio Visualizer" />
@@ -41,12 +43,18 @@
         color: var(--text-primary);
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, ui-sans-serif, system-ui, sans-serif;
         overflow: hidden;
+        overscroll-behavior: none;
         user-select: none;
         -webkit-user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      button {
+        touch-action: manipulation;
       }
       #app {
         position: fixed;
         inset: 0;
+        touch-action: pan-y;
       }
       #app canvas {
         display: block;
@@ -67,7 +75,18 @@
 
       /* Top Header Bar */
       #top-bar {
-        display: none !important;
+        position: fixed;
+        top: max(12px, env(safe-area-inset-top, 12px));
+        left: 50%;
+        transform: translateX(-50%);
+        width: calc(100% - 24px);
+        max-width: 1280px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        z-index: 55;
+        pointer-events: none;
       }
       .brand-box {
         pointer-events: auto;
@@ -75,52 +94,40 @@
         align-items: center;
         gap: 8px;
         background: var(--bg-panel);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
         border: 1px solid var(--border-glass);
-        padding: 6px 14px;
-        border-radius: 9999px;
+        padding: 7px 13px;
+        border-radius: 12px;
         font-family: ui-monospace, 'SF Mono', Menlo, monospace;
         font-size: 11px;
-        letter-spacing: 0.18em;
+        letter-spacing: 0.16em;
         text-transform: uppercase;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-      }
-      .brand-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--accent);
-        box-shadow: 0 0 10px var(--accent);
-        animation: pulse-dot 2s infinite ease-in-out;
-      }
-      @keyframes pulse-dot {
-        0%, 100% { transform: scale(0.9); opacity: 0.7; }
-        50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 14px var(--cyan); }
+        flex-shrink: 0;
       }
       .brand-tag {
         color: var(--text-dim);
-        font-size: 9px;
-        border-left: 1px solid var(--border-glass);
-        padding-left: 8px;
-        margin-left: 2px;
+        font-size: 10px;
+        letter-spacing: 0.08em;
       }
 
-      /* Scene Selector Bar */
+      /* Desktop Scene Selector Bar */
       #scene-nav {
         pointer-events: auto;
         display: flex;
         align-items: center;
         gap: 4px;
         background: var(--bg-panel);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
         border: 1px solid var(--border-glass);
         padding: 4px 6px;
-        border-radius: 9999px;
+        border-radius: 14px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
         max-width: 100%;
         overflow-x: auto;
+        scrollbar-width: none;
       }
       #scene-nav::-webkit-scrollbar {
         display: none;
@@ -132,9 +139,9 @@
         font-family: inherit;
         font-size: 11px;
         font-weight: 500;
-        letter-spacing: 0.04em;
-        padding: 5px 10px;
-        border-radius: 9999px;
+        letter-spacing: 0.03em;
+        padding: 6px 10px;
+        border-radius: 10px;
         cursor: pointer;
         transition: all 0.2s ease;
         display: flex;
@@ -148,9 +155,9 @@
       }
       .scene-btn.active {
         color: #fff;
-        background: rgba(138, 124, 255, 0.22);
+        background: rgba(138, 124, 255, 0.24);
         border-color: var(--accent-bright);
-        box-shadow: 0 0 14px rgba(138, 124, 255, 0.35);
+        box-shadow: 0 0 14px rgba(138, 124, 255, 0.3);
       }
       .scene-num {
         font-family: ui-monospace, 'SF Mono', monospace;
@@ -164,19 +171,180 @@
         font-size: 10px;
         font-family: ui-monospace, monospace;
         letter-spacing: 0.06em;
-        padding: 5px 9px;
-        border-radius: 9999px;
+        padding: 6px 10px;
+        border-radius: 10px;
         cursor: pointer;
         transition: all 0.2s;
         margin-left: 4px;
         display: flex;
         align-items: center;
         gap: 4px;
+        white-space: nowrap;
       }
       .auto-btn.active {
         color: var(--cyan);
-        border-color: rgba(76, 224, 210, 0.4);
-        background: rgba(76, 224, 210, 0.1);
+        border-color: rgba(76, 224, 210, 0.45);
+        background: rgba(76, 224, 210, 0.12);
+      }
+
+      /* Mobile Scene Stepper (hidden on desktop) */
+      #mobile-scene-bar {
+        display: none;
+        pointer-events: auto;
+        align-items: center;
+        gap: 2px;
+        background: var(--bg-panel);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--border-glass);
+        border-radius: 14px;
+        padding: 3px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+        min-width: 0;
+        flex: 1;
+        max-width: 260px;
+      }
+      .mobile-step-btn {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        border: none;
+        background: transparent;
+        color: var(--text-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        flex-shrink: 0;
+        padding: 0;
+        transition: background 0.15s ease, color 0.15s ease;
+      }
+      .mobile-step-btn:active {
+        background: rgba(138, 124, 255, 0.25);
+        color: #fff;
+      }
+      .mobile-step-btn svg {
+        width: 18px;
+        height: 18px;
+        fill: currentColor;
+      }
+      #mobile-scene-trigger {
+        flex: 1;
+        min-width: 0;
+        height: 38px;
+        border: none;
+        background: rgba(255, 255, 255, 0.04);
+        border-radius: 10px;
+        color: #fff;
+        padding: 0 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        cursor: pointer;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 600;
+        transition: background 0.15s ease;
+      }
+      #mobile-scene-trigger:active {
+        background: rgba(138, 124, 255, 0.22);
+      }
+      #mobile-scene-index {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 10px;
+        color: var(--cyan);
+        flex-shrink: 0;
+      }
+      #mobile-scene-name {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .mobile-chevron {
+        width: 14px;
+        height: 14px;
+        fill: var(--text-secondary);
+        flex-shrink: 0;
+        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      #mobile-scene-trigger.open .mobile-chevron {
+        transform: rotate(180deg);
+      }
+
+      /* Mobile Scene Grid Drawer */
+      #mobile-scene-sheet {
+        position: fixed;
+        top: calc(max(10px, env(safe-area-inset-top, 10px)) + 54px);
+        left: 12px;
+        right: 12px;
+        max-width: 440px;
+        margin: 0 auto;
+        background: rgba(12, 12, 28, 0.94);
+        backdrop-filter: blur(26px);
+        -webkit-backdrop-filter: blur(26px);
+        border: 1px solid var(--border-glass-bright);
+        border-radius: 18px;
+        padding: 12px;
+        z-index: 65;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75), 0 0 30px rgba(138, 124, 255, 0.16);
+        opacity: 0;
+        transform: translateY(-10px) scale(0.98);
+        pointer-events: none;
+        transition: opacity 0.25s cubic-bezier(0.16, 1, 0.3, 1), transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      #mobile-scene-sheet.open {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+        pointer-events: auto;
+      }
+      .mobile-sheet-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 2px 4px 10px;
+        border-bottom: 1px solid var(--border-glass);
+        margin-bottom: 10px;
+      }
+      .mobile-sheet-title {
+        font-family: ui-monospace, 'SF Mono', monospace;
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--text-secondary);
+      }
+      .mobile-scene-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .mobile-scene-tile {
+        min-height: 44px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        border: 1px solid var(--border-glass);
+        background: rgba(255, 255, 255, 0.04);
+        color: var(--text-primary);
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        cursor: pointer;
+        text-align: left;
+        transition: all 0.18s ease;
+      }
+      .mobile-scene-tile.active {
+        background: rgba(138, 124, 255, 0.24);
+        border-color: var(--accent-bright);
+        color: #fff;
+        box-shadow: 0 0 16px rgba(138, 124, 255, 0.28);
+      }
+      .mobile-scene-tile .scene-num {
+        font-size: 10px;
+        color: var(--cyan);
+        opacity: 0.85;
       }
 
       /* Top-Right Tools */
@@ -185,16 +353,17 @@
         display: flex;
         align-items: center;
         gap: 6px;
+        flex-shrink: 0;
       }
       .tool-btn {
         background: var(--bg-panel);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
         border: 1px solid var(--border-glass);
         color: var(--text-secondary);
-        width: 32px;
-        height: 32px;
-        border-radius: 50%;
+        width: 36px;
+        height: 36px;
+        border-radius: 11px;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -209,8 +378,8 @@
         transform: translateY(-1px);
       }
       .tool-btn svg {
-        width: 15px;
-        height: 15px;
+        width: 16px;
+        height: 16px;
         fill: currentColor;
       }
 
@@ -460,30 +629,72 @@
       /* Bottom Floating Player Dock */
       #player-dock {
         position: fixed;
-        bottom: 16px;
+        bottom: max(14px, env(safe-area-inset-bottom, 14px));
         left: 50%;
-        transform: translateX(-50%);
-        width: calc(100% - 32px);
-        max-width: 960px;
+        transform: translate(-50%, 0);
+        width: calc(100% - 28px);
+        max-width: 980px;
         background: var(--bg-panel);
         backdrop-filter: blur(24px);
         -webkit-backdrop-filter: blur(24px);
         border: 1px solid var(--border-glass);
-        border-radius: 18px;
-        padding: 10px 16px;
+        border-radius: 20px;
+        padding: 10px 14px;
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: 14px;
         z-index: 50;
         box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5), 0 0 30px rgba(138, 124, 255, 0.06);
+        transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.32s ease;
       }
-      .dock-left {
+      #player-dock.is-collapsed {
+        transform: translate(-50%, calc(100% + 44px + env(safe-area-inset-bottom, 14px))) !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+      }
+      #dock-restore-btn {
+        position: fixed;
+        bottom: max(12px, env(safe-area-inset-bottom, 12px));
+        left: 50%;
+        transform: translate(-50%, calc(100% + 28px));
+        opacity: 0;
+        pointer-events: none;
+        height: 40px;
+        padding: 0 16px;
+        border-radius: 14px;
+        background: rgba(12, 12, 28, 0.88);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border: 1px solid var(--border-glass-bright);
+        color: var(--text-primary);
         display: flex;
         align-items: center;
-        gap: 12px;
-        min-width: 260px;
-        max-width: 320px;
-        flex-shrink: 0;
+        gap: 8px;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        z-index: 52;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55), 0 0 20px rgba(138, 124, 255, 0.16);
+        transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease, border-color 0.2s ease;
+      }
+      #dock-restore-btn.visible {
+        transform: translate(-50%, 0);
+        opacity: 1;
+        pointer-events: auto;
+      }
+      #dock-restore-btn:hover {
+        border-color: var(--cyan);
+        color: #fff;
+      }
+      #dock-restore-btn svg {
+        width: 16px;
+        height: 16px;
+        fill: var(--cyan);
+      }
+      body.cinema-mode #dock-restore-btn {
+        opacity: 0 !important;
+        pointer-events: none !important;
       }
       .dock-playback-controls {
         display: flex;
@@ -619,7 +830,9 @@
         flex-direction: column;
         gap: 3px;
         overflow: hidden;
-        min-width: 0;
+        min-width: 120px;
+        max-width: 210px;
+        flex-shrink: 1;
       }
       .track-title {
         font-size: 13px;
@@ -666,10 +879,11 @@
       }
       .timeline-bar-wrap {
         position: relative;
-        height: 20px;
+        height: 28px;
         display: flex;
         align-items: center;
         cursor: pointer;
+        touch-action: none;
       }
       .timeline-bg {
         width: 100%;
@@ -718,7 +932,8 @@
         pointer-events: none;
         transition: transform 0.15s cubic-bezier(0.16, 1, 0.3, 1);
       }
-      .timeline-bar-wrap:hover #timeline-thumb {
+      .timeline-bar-wrap:hover #timeline-thumb,
+      .timeline-bar-wrap.is-seeking #timeline-thumb {
         transform: translate(-50%, -50%) scale(1);
       }
       .time-row {
@@ -1240,13 +1455,14 @@
       /* Tweakpane parameter tuning panel */
       .tp-dfwv {
         position: fixed !important;
-        top: 14px !important;
+        top: max(62px, calc(env(safe-area-inset-top, 12px) + 52px)) !important;
         right: 14px !important;
-        max-height: calc(100vh - 28px);
+        max-height: calc(100dvh - 140px);
+        max-width: calc(100vw - 28px) !important;
         overflow-y: auto;
         overscroll-behavior: contain;
         z-index: 120 !important;
-        border-radius: 12px !important;
+        border-radius: 14px !important;
         box-shadow: 0 14px 40px rgba(0, 0, 0, 0.75), 0 0 24px rgba(138, 124, 255, 0.25) !important;
       }
       .tp-mllv_i {
@@ -1256,32 +1472,177 @@
         overflow-y: auto !important;
       }
 
-      /* Responsive adjustments */
-      @media (max-width: 768px) {
+      /* Tablet & Compact Desktop Switch */
+      @media (max-width: 1080px) {
+        .brand-box {
+          display: none;
+        }
+      }
+
+      @media (max-width: 860px) {
         #top-bar {
-          flex-wrap: wrap;
+          width: calc(100% - 20px);
+          top: max(8px, env(safe-area-inset-top, 8px));
         }
         #scene-nav {
-          order: 3;
-          width: 100%;
-          justify-content: flex-start;
+          display: none;
+        }
+        #mobile-scene-bar {
+          display: flex;
+        }
+        .tool-btn {
+          width: 44px;
+          height: 44px;
+          border-radius: 13px;
+        }
+        #top-playlist-btn,
+        #help-btn {
+          display: none;
+        }
+      }
+
+      /* Mobile Touch Ergonomics */
+      @media (max-width: 768px) {
+        .hero-card {
+          padding: 20px 16px;
+          gap: 14px;
+          max-height: calc(100dvh - 190px);
+          overflow-y: auto;
+        }
+        .hero-title {
+          font-size: 16px;
+          letter-spacing: 0.2em;
         }
         .action-grid {
           grid-template-columns: 1fr;
+          gap: 8px;
+        }
+        .action-card {
+          min-height: 52px;
+          padding: 10px 14px;
         }
         #player-dock {
-          flex-direction: column;
-          gap: 10px;
-          padding: 12px;
-          bottom: 10px;
+          bottom: max(10px, env(safe-area-inset-bottom, 10px));
+          width: calc(100% - 20px);
+          padding: 12px 14px 12px;
+          border-radius: 22px;
+          display: grid;
+          grid-template-columns: 1fr auto;
+          grid-template-areas:
+            'info collapse'
+            'timeline timeline'
+            'controls right';
+          align-items: center;
+          gap: 8px 10px;
         }
-        .dock-left, .dock-center, .dock-right {
-          width: 100%;
-          max-width: 100%;
-          justify-content: space-between;
+        .track-info {
+          grid-area: info;
+          max-width: none;
+          min-width: 0;
+        }
+        #dock-collapse-btn {
+          grid-area: collapse;
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
+        }
+        .dock-center {
+          grid-area: timeline;
+          gap: 3px;
+        }
+        .timeline-bar-wrap {
+          height: 36px;
+        }
+        .timeline-bg {
+          height: 7px;
+        }
+        #timeline-thumb {
+          transform: translate(-50%, -50%) scale(0.85);
+        }
+        .dock-playback-controls {
+          grid-area: controls;
+          gap: 10px;
+        }
+        .dock-step-btn {
+          width: 44px;
+          height: 44px;
+        }
+        .dock-step-btn svg {
+          width: 19px;
+          height: 19px;
+        }
+        .play-btn.disc-btn {
+          width: 52px;
+          height: 52px;
+        }
+        .dock-right {
+          grid-area: right;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+        #vol-slider {
+          display: none;
+        }
+        .vol-btn {
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
+          background: rgba(255, 255, 255, 0.05);
+          border: 1px solid var(--border-glass);
+        }
+        .dock-icon-btn {
+          width: 44px;
+          height: 44px;
+          border-radius: 12px;
+        }
+        .dock-icon-btn svg,
+        .vol-btn svg {
+          width: 18px;
+          height: 18px;
+        }
+        #dock-restore-btn {
+          height: 44px;
+          padding: 0 20px;
+          border-radius: 14px;
+          font-size: 13px;
         }
         .shortcuts-list {
           grid-template-columns: 1fr;
+        }
+        .playlist-card {
+          width: calc(100vw - 16px);
+          max-height: calc(100dvh - 24px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+          border-radius: 22px;
+        }
+        .playlist-header,
+        .playlist-selector-bar,
+        .playlist-actions-bar {
+          padding-left: 14px;
+          padding-right: 14px;
+        }
+        .playlist-tracks-container {
+          padding: 10px 12px;
+        }
+        .playlist-tab-btn,
+        .create-playlist-btn,
+        .pl-action-btn {
+          min-height: 38px;
+          padding: 7px 12px;
+        }
+        .playlist-track-row {
+          min-height: 54px;
+        }
+        .track-action-btn {
+          width: 40px;
+          height: 40px;
+        }
+        #toast {
+          top: auto;
+          bottom: calc(max(12px, env(safe-area-inset-bottom, 12px)) + 178px);
+          font-size: 12px;
+          letter-spacing: 0.08em;
+          padding: 8px 16px;
+          max-width: calc(100vw - 32px);
         }
       }
     </style>
@@ -1292,9 +1653,23 @@
     <!-- Top Navigation & Controls -->
     <header id="top-bar" class="hud-fade">
       <div class="brand-box">
-        <div class="brand-dot"></div>
         <span>PERSONANCE</span>
         <span class="brand-tag" id="backend-tag">WebGPU</span>
+      </div>
+
+      <!-- Mobile Compact Scene Stepper -->
+      <div id="mobile-scene-bar">
+        <button class="mobile-step-btn" id="mobile-scene-prev" title="Предыдущая сцена" aria-label="Предыдущая сцена">
+          <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+        </button>
+        <button id="mobile-scene-trigger" aria-expanded="false" aria-controls="mobile-scene-sheet">
+          <span id="mobile-scene-index">1/10</span>
+          <span id="mobile-scene-name">Ferrofluid</span>
+          <svg class="mobile-chevron" viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+        </button>
+        <button class="mobile-step-btn" id="mobile-scene-next" title="Следующая сцена" aria-label="Следующая сцена">
+          <svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
+        </button>
       </div>
 
       <nav id="scene-nav" aria-label="Visual Scenes">
@@ -1328,13 +1703,13 @@
         <button class="scene-btn" data-scene="9" title="Scene 10: Boids">
           <span class="scene-num">10</span> Boids
         </button>
-        <button class="auto-btn active" id="auto-scene-btn" title="Toggle Section Auto-Switch (Key A)">
+        <button class="auto-btn active" id="auto-scene-btn" title="Toggle Section Auto-Switch (0)">
           Auto ↺
         </button>
       </nav>
 
       <div class="top-tools">
-        <button class="tool-btn" id="top-playlist-btn" title="Плейлисты">
+        <button class="tool-btn" id="top-playlist-btn" title="Плейлисты (Q)">
           <svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
         </button>
         <button class="tool-btn" id="open-file-nav-btn" title="Open Audio File (O)">
@@ -1351,6 +1726,26 @@
         </button>
       </div>
     </header>
+
+    <!-- Mobile Scene Grid Drawer -->
+    <div id="mobile-scene-sheet" class="hud-fade" aria-hidden="true">
+      <div class="mobile-sheet-head">
+        <span class="mobile-sheet-title">Выбор сцены</span>
+        <button class="auto-btn active" id="mobile-auto-btn" type="button">Auto ↺</button>
+      </div>
+      <div class="mobile-scene-grid">
+        <button class="mobile-scene-tile active" data-scene="0"><span class="scene-num">01</span><span>Ferrofluid</span></button>
+        <button class="mobile-scene-tile" data-scene="1"><span class="scene-num">02</span><span>Lava Lamp</span></button>
+        <button class="mobile-scene-tile" data-scene="2"><span class="scene-num">03</span><span>Particles</span></button>
+        <button class="mobile-scene-tile" data-scene="3"><span class="scene-num">04</span><span>Terrain</span></button>
+        <button class="mobile-scene-tile" data-scene="4"><span class="scene-num">05</span><span>Fractal</span></button>
+        <button class="mobile-scene-tile" data-scene="5"><span class="scene-num">06</span><span>Physarum</span></button>
+        <button class="mobile-scene-tile" data-scene="6"><span class="scene-num">07</span><span>Attractor</span></button>
+        <button class="mobile-scene-tile" data-scene="7"><span class="scene-num">08</span><span>KIFS</span></button>
+        <button class="mobile-scene-tile" data-scene="8"><span class="scene-num">09</span><span>Black Hole</span></button>
+        <button class="mobile-scene-tile" data-scene="9"><span class="scene-num">10</span><span>Boids</span></button>
+      </div>
+    </div>
 
     <!-- Center Hero / Welcome Overlay -->
     <div id="hud">
@@ -1406,36 +1801,34 @@
 
     <!-- Bottom Floating Player Dock -->
     <div id="player-dock" class="hud-fade">
-      <div class="dock-left">
-        <div class="dock-playback-controls">
-          <button class="dock-step-btn" id="dock-prev-btn" title="Предыдущий трек (P / [)">
-            <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-          </button>
+      <div class="dock-playback-controls">
+        <button class="dock-step-btn" id="dock-prev-btn" title="Предыдущий трек (P / [)" aria-label="Предыдущий трек">
+          <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+        </button>
 
-          <button class="play-btn disc-btn" id="dock-play-btn" title="Воспроизведение / Пауза (Space)">
-            <div class="dock-disc-underlay" id="dock-cover-disc">
-              <div class="dock-cover-art" id="dock-cover-art"></div>
-              <div class="dock-disc-grooves"></div>
-              <div class="dock-disc-sheen"></div>
-              <div class="dock-disc-spindle"></div>
-            </div>
-            <div class="dock-play-overlay">
-              <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-              <svg id="pause-icon" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
-            </div>
-          </button>
-
-          <button class="dock-step-btn" id="dock-next-btn" title="Следующий трек (N / ])">
-            <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-          </button>
-        </div>
-
-        <div class="track-info">
-          <div class="track-title" id="dock-track-title">Ожидание аудио…</div>
-          <div class="track-meta" id="dock-track-meta">
-            <span class="track-playlist-badge" id="dock-playlist-tag">⭐ Избранное</span>
-            <span class="track-bpm-tag" id="badge-bpm"></span>
+        <button class="play-btn disc-btn" id="dock-play-btn" title="Воспроизведение / Пауза (Space)" aria-label="Воспроизведение / Пауза">
+          <div class="dock-disc-underlay" id="dock-cover-disc">
+            <div class="dock-cover-art" id="dock-cover-art"></div>
+            <div class="dock-disc-grooves"></div>
+            <div class="dock-disc-sheen"></div>
+            <div class="dock-disc-spindle"></div>
           </div>
+          <div class="dock-play-overlay">
+            <svg id="play-icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            <svg id="pause-icon" viewBox="0 0 24 24" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          </div>
+        </button>
+
+        <button class="dock-step-btn" id="dock-next-btn" title="Следующий трек (N / ])" aria-label="Следующий трек">
+          <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+        </button>
+      </div>
+
+      <div class="track-info">
+        <div class="track-title" id="dock-track-title">Ожидание аудио…</div>
+        <div class="track-meta" id="dock-track-meta">
+          <span class="track-playlist-badge" id="dock-playlist-tag">Избранное</span>
+          <span class="track-bpm-tag" id="badge-bpm"></span>
         </div>
       </div>
 
@@ -1455,19 +1848,29 @@
 
       <div class="dock-right">
         <div class="vol-wrap">
-          <button class="vol-btn" id="vol-mute-btn" title="Mute / Unmute">
+          <button class="vol-btn" id="vol-mute-btn" title="Mute / Unmute" aria-label="Громкость">
             <svg id="vol-icon" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
             <svg id="vol-muted-icon" viewBox="0 0 24 24" style="display:none"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
           </button>
           <input type="range" id="vol-slider" min="0" max="1" step="0.01" value="1" title="Volume" />
         </div>
 
-        <button class="dock-icon-btn" id="dock-playlist-btn" title="Плейлисты (Q)">
+        <button class="dock-icon-btn" id="dock-playlist-btn" title="Плейлисты (Q)" aria-label="Плейлисты">
           <svg viewBox="0 0 24 24"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg>
           <span class="playlist-counter-badge" id="playlist-dock-counter">1</span>
         </button>
       </div>
+
+      <button class="dock-icon-btn" id="dock-collapse-btn" title="Скрыть нижнюю панель" aria-label="Скрыть нижнюю панель">
+        <svg viewBox="0 0 24 24"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z"/></svg>
+      </button>
     </div>
+
+    <!-- Restore Handle when Bottom Dock is collapsed -->
+    <button id="dock-restore-btn" type="button" title="Показать панель плеера" aria-label="Показать панель плеера">
+      <svg viewBox="0 0 24 24"><path d="M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6z"/></svg>
+      <span id="dock-restore-label">Панель плеера</span>
+    </button>
 
     <!-- Playlist Management Drawer / Modal -->
     <div id="playlist-modal">

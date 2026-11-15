@@ -97,10 +97,11 @@ export class ParticleField implements VisualScene {
 
   async init(ctx: SceneContext): Promise<void> {
     this.ctx = ctx;
+    const count = ctx.isMobile ? 56_000 : COUNT;
 
-    const positions = instancedArray(COUNT, 'vec3');
-    const velocities = instancedArray(COUNT, 'vec3');
-    const seeds = instancedArray(COUNT, 'float');
+    const positions = instancedArray(count, 'vec3');
+    const velocities = instancedArray(count, 'vec3');
+    const seeds = instancedArray(count, 'float');
 
     const initCompute = Fn(() => {
       const seed = hash(instanceIndex);
@@ -120,7 +121,7 @@ export class ParticleField implements VisualScene {
       positions.element(instanceIndex).assign(pos);
       velocities.element(instanceIndex).assign(vec3(0));
       seeds.element(instanceIndex).assign(seed);
-    })().compute(COUNT);
+    })().compute(count);
 
     const update = Fn(() => {
       const pos = positions.element(instanceIndex);
@@ -170,7 +171,7 @@ export class ParticleField implements VisualScene {
         pos.assign(pos.normalize().mul(seed.mul(7).add(4)));
         vel.assign(vec3(0));
       });
-    })().compute(COUNT);
+    })().compute(count);
     this.updateCompute = update;
 
     const material = new THREE.SpriteNodeMaterial({
@@ -210,7 +211,7 @@ export class ParticleField implements VisualScene {
       baseScale.mul(float(1).sub(stretch.mul(0.55))),
     );
 
-    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, COUNT);
+    const mesh = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), material, count);
     mesh.frustumCulled = false;
     this.mesh = mesh;
     ctx.scene.add(mesh);

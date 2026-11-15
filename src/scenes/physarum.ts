@@ -60,8 +60,8 @@ export class Physarum implements VisualScene {
   private uHigh = uniform(color('#9a6bff'));
   private uPeak = uniform(color('#ffeede'));
 
-  private rtA: THREE.RenderTarget;
-  private rtB: THREE.RenderTarget;
+  private rtA: THREE.RenderTarget | null = null;
+  private rtB: THREE.RenderTarget | null = null;
   /** Texture node whose .value is swapped to the current trail each frame. */
   private trailRead = texture(new THREE.Texture());
   private displayRead = texture(new THREE.Texture());
@@ -73,20 +73,6 @@ export class Physarum implements VisualScene {
   private depositMesh: THREE.InstancedMesh | null = null;
   private displayMesh: THREE.Mesh | null = null;
   private ctx: SceneContext | null = null;
-
-  constructor() {
-    const opts: THREE.RenderTargetOptions = {
-      type: THREE.HalfFloatType,
-      format: THREE.RGBAFormat,
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      wrapS: THREE.RepeatWrapping,
-      wrapT: THREE.RepeatWrapping,
-      depthBuffer: false,
-    };
-    this.rtA = new THREE.RenderTarget(RES, RES, opts);
-    this.rtB = new THREE.RenderTarget(RES, RES, opts);
-  }
 
   private paramValues: Record<string, number> = {};
 
@@ -111,9 +97,23 @@ export class Physarum implements VisualScene {
 
   async init(ctx: SceneContext): Promise<void> {
     this.ctx = ctx;
+    const agents = ctx.isMobile ? 80_000 : AGENTS;
+    const res = ctx.isMobile ? 512 : RES;
 
-    const positions = instancedArray(AGENTS, 'vec2'); // uv space 0..1
-    const headings = instancedArray(AGENTS, 'float');
+    const opts: THREE.RenderTargetOptions = {
+      type: THREE.HalfFloatType,
+      format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      wrapS: THREE.RepeatWrapping,
+      wrapT: THREE.RepeatWrapping,
+      depthBuffer: false,
+    };
+    this.rtA = new THREE.RenderTarget(res, res, opts);
+    this.rtB = new THREE.RenderTarget(res, res, opts);
+
+    const positions = instancedArray(agents, 'vec2'); // uv space 0..1
+    const headings = instancedArray(agents, 'float');
 
     const initCompute = Fn(() => {
       // Uniform spread: the network condenses everywhere at once instead
@@ -122,13 +122,13 @@ export class Physarum implements VisualScene {
         .element(instanceIndex)
         .assign(vec2(hash(instanceIndex), hash(instanceIndex.add(917))));
       headings.element(instanceIndex).assign(hash(instanceIndex.add(31)).mul(Math.PI * 2));
-    })().compute(AGENTS);
+    })().compute(agents);
 
     // TSL node params are structurally loose; precise types fight the proxy.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sense = (pos: any, angle: any) => {
       const dir = vec2(angle.cos(), angle.sin());
-      const samplePos = pos.add(dir.mul(9 / RES)).fract();
+      const samplePos = pos.add(dir.mul(9 / res)).fract();
       return this.trailRead.sample(samplePos).r;
     };
 
@@ -156,7 +156,7 @@ export class Physarum implements VisualScene {
       const speed = this.uMoveSpeed.mul(float(1).sub(this.uInhale.mul(0.85)));
       const dir = vec2(heading.cos(), heading.sin());
       pos.assign(pos.add(dir.mul(speed.mul(this.uDelta))).fract());
-    })().compute(AGENTS);
+    })().compute(agents);
 
     // Deposit pass: agents as additive points in the FBO scene.
     const depositMat = new THREE.SpriteNodeMaterial({
@@ -173,11 +173,11 @@ export class Physarum implements VisualScene {
     // Keep the mean near 0.15 so only converged lanes (5-10x mean)
     // clear the display threshold — that's the filigree.
     depositMat.colorNode = vec4(0.025, 0.025, 0.025, 1);
-    depositMat.scaleNode = float(2 / RES);
+    depositMat.scaleNode = float(2 / res);
     const depositMesh = new THREE.InstancedMesh(
       new THREE.PlaneGeometry(1, 1),
       depositMat,
-      AGENTS,
+      agents,
     );
     depositMesh.frustumCulled = false;
     depositMesh.position.z = -1;
@@ -190,7 +190,7 @@ export class Physarum implements VisualScene {
       const sum = float(0).toVar();
       for (let dx = -1; dx <= 1; dx++) {
         for (let dy = -1; dy <= 1; dy++) {
-          const offset = vec2(dx / RES, dy / RES);
+          const offset = vec2(dx / res, dy / res);
           sum.addAssign(this.trailRead.sample(uv().add(offset).fract()).r);
         }
       }
@@ -233,7 +233,7 @@ export class Physarum implements VisualScene {
 
   update(_f: FrameFeatures, dt: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.displayMesh?.visible || !this.diffuseQuad || !this.depositMesh) return;
+    if (!ctx || !this.displayMesh?.visible || !this.diffuseQuad || !this.depositMesh || !this.rtA || !this.rtB) return;
     this.uDelta.value = Math.min(dt, 1 / 30) * 60; // normalized to ~frame units
     this.uSeed.value = (this.uSeed.value as number + 1) % 100_000;
 
@@ -275,12 +275,25 @@ export class Physarum implements VisualScene {
   }
 
   dispose(): void {
+    if (this.diffuseQuad) {
+      this.diffuseQuad.geometry.dispose();
+      (this.diffuseQuad.material as THREE.Material).dispose();
+      this.diffuseQuad = null;
+    }
+    if (this.depositMesh) {
+      this.depositMesh.geometry.dispose();
+      (this.depositMesh.material as THREE.Material).dispose();
+      this.depositMesh = null;
+    }
     if (this.displayMesh && this.ctx) {
       this.ctx.scene.remove(this.displayMesh);
       this.displayMesh.geometry.dispose();
       (this.displayMesh.material as THREE.Material).dispose();
+      this.displayMesh = null;
     }
-    this.rtA.dispose();
-    this.rtB.dispose();
+    this.rtA?.dispose();
+    this.rtB?.dispose();
+    this.rtA = null;
+    this.rtB = null;
   }
 }

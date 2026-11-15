@@ -2,25 +2,16 @@ import * as THREE from 'three/webgpu';
 import { analyzeInWorker, cacheAnalysis, getCachedAnalysis, sha256Hex } from './analysis';
 import { applyInterfacePalette, emotionPalette, extractPalette } from './analysis/palette';
 import { requestDirectorPlan } from './conductor/director';
-import { Attractor } from './scenes/attractor';
 import { PostStack } from './post/pipeline';
 import { FilePlayer } from './audio/file-player';
 import type { FrameFeatures } from './audio/features';
 import { LiveProvider, type LiveSource } from './audio/live-provider';
-import { BlackHole } from './scenes/blackhole';
-import { Boids } from './scenes/boids';
-import { FerrofluidBlob } from './scenes/ferrofluid';
-import { LavaLamp } from './scenes/lavalamp';
-import { Fractal } from './scenes/fractal';
-import { Kifs } from './scenes/kifs';
 import { SceneManager } from './scenes/manager';
-import { ParticleField } from './scenes/particles';
-import { Physarum } from './scenes/physarum';
+import { SCENE_REGISTRY } from './scenes/registry';
 import type { SceneContext } from './scenes/scene';
-import { Terrain } from './scenes/terrain';
 import type { SongAnalysis, Palette } from './types/song-analysis';
 import { SONG_ANALYSIS_VERSION } from './types/song-analysis';
-import { DevPanel } from './ui/panel';
+import type { DevPanel } from './ui/panel';
 import { PlaylistManager, type PlaylistTrack } from './playlist/playlist-manager';
 import { PlaylistUI } from './playlist/playlist-ui';
 import { generateVinylCover } from './playlist/cover-generator';
@@ -36,7 +27,16 @@ const backendTag = document.getElementById('backend-tag')!;
 
 // Navigation & Dock elements
 const autoSceneBtn = document.getElementById('auto-scene-btn') as HTMLButtonElement;
+const mobileAutoBtn = document.getElementById('mobile-auto-btn') as HTMLButtonElement;
 const sceneButtons = document.querySelectorAll<HTMLButtonElement>('.scene-btn');
+const mobileSceneTiles = document.querySelectorAll<HTMLButtonElement>('.mobile-scene-tile');
+const mobileScenePrev = document.getElementById('mobile-scene-prev') as HTMLButtonElement;
+const mobileSceneNext = document.getElementById('mobile-scene-next') as HTMLButtonElement;
+const mobileSceneTrigger = document.getElementById('mobile-scene-trigger') as HTMLButtonElement;
+const mobileSceneIndex = document.getElementById('mobile-scene-index')!;
+const mobileSceneName = document.getElementById('mobile-scene-name')!;
+const mobileSceneSheet = document.getElementById('mobile-scene-sheet')!;
+
 const devPanelBtn = document.getElementById('dev-panel-btn') as HTMLButtonElement;
 const helpBtn = document.getElementById('help-btn') as HTMLButtonElement;
 const fullscreenBtn = document.getElementById('fullscreen-btn') as HTMLButtonElement;
@@ -49,6 +49,10 @@ const liveSysBtn = document.getElementById('live-sys-btn') as HTMLButtonElement;
 const cinemaBtn = document.getElementById('cinema-btn') as HTMLButtonElement | null;
 
 // Player Dock Controls & Rotating Vinyl Disc
+const playerDock = document.getElementById('player-dock')!;
+const dockCollapseBtn = document.getElementById('dock-collapse-btn') as HTMLButtonElement;
+const dockRestoreBtn = document.getElementById('dock-restore-btn') as HTMLButtonElement;
+const dockRestoreLabel = document.getElementById('dock-restore-label')!;
 const dockPlayBtn = document.getElementById('dock-play-btn') as HTMLButtonElement;
 const dockPrevBtn = document.getElementById('dock-prev-btn') as HTMLButtonElement;
 const dockNextBtn = document.getElementById('dock-next-btn') as HTMLButtonElement;
@@ -131,12 +135,34 @@ function idleFeatures(t: number): FrameFeatures {
   };
 }
 
+function detectMobileDevice(): boolean {
+  const coarse = window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  const uaMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+  return coarse || uaMobile || window.innerWidth <= 820;
+}
+
 async function boot(): Promise<void> {
-  const renderer = new THREE.WebGPURenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  const isMobile = detectMobileDevice();
+  const qualityScale = isMobile ? 0.55 : 1.0;
+
+  // Hide System/Tab Audio option on mobile browsers that lack getDisplayMedia
+  if (typeof navigator.mediaDevices?.getDisplayMedia !== 'function') {
+    liveSysBtn.style.display = 'none';
+  }
+
+  const renderer = new THREE.WebGPURenderer({ antialias: !isMobile });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, isMobile ? 1.5 : 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   await renderer.init();
   app.appendChild(renderer.domElement);
+
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();
+    toast('Графический контекст приостановлен…', 3000);
+  });
+  renderer.domElement.addEventListener('webglcontextrestored', () => {
+    toast('Графический контекст восстановлен', 2200);
+  });
 
   const isWebGPU = (renderer.backend as { isWebGPUBackend?: boolean }).isWebGPUBackend === true;
   const backendLabel = isWebGPU ? 'WebGPU' : 'WebGL2';
@@ -145,47 +171,110 @@ async function boot(): Promise<void> {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#050510');
-  const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
+  const initialAspect = window.innerWidth / Math.max(1, window.innerHeight);
+  const camera = new THREE.PerspectiveCamera(initialAspect < 0.85 ? 70 : 60, initialAspect, 0.1, 200);
   camera.position.set(0, 0, 22);
 
-  const ctx: SceneContext = { renderer, scene, camera };
+  const ctx: SceneContext = { renderer, scene, camera, isMobile, qualityScale };
   const manager = new SceneManager();
-  await manager.init(ctx, [
-    new FerrofluidBlob(),
-    new LavaLamp(),
-    new ParticleField(),
-    new Terrain(),
-    new Fractal(),
-    new Physarum(),
-    new Attractor(),
-    new Kifs(),
-    new BlackHole(),
-    new Boids(),
-  ]);
+  await manager.init(ctx, SCENE_REGISTRY, 0);
   debugState.sceneName = manager.active.name;
   const post = new PostStack(renderer, scene, camera);
-  const panel = new DevPanel(manager);
+
+  let panel: DevPanel | null = null;
+  let panelLoading: Promise<DevPanel> | null = null;
   let trackName = '';
+  let lastAnalysis: SongAnalysis | null = null;
   let directorToken = 0;
 
-  // Scene UI Synchronizer
+  async function ensureDevPanel(): Promise<DevPanel> {
+    if (panel) return panel;
+    if (!panelLoading) {
+      panelLoading = import('./ui/panel').then(({ DevPanel: DevPanelClass }) => {
+        const instance = new DevPanelClass(manager);
+        if (lastAnalysis) instance.setAnalysis(trackName, lastAnalysis);
+        panel = instance;
+        return instance;
+      });
+    }
+    return panelLoading;
+  }
+
+  // Scene UI Synchronizer (desktop bar + mobile stepper & grid drawer)
   function syncSceneButtons(activeIdx: number): void {
     sceneButtons.forEach((btn, idx) => {
       btn.classList.toggle('active', idx === activeIdx);
     });
+    mobileSceneTiles.forEach((btn, idx) => {
+      btn.classList.toggle('active', idx === activeIdx);
+    });
+    const total = SCENE_REGISTRY.length;
+    mobileSceneIndex.textContent = `${activeIdx + 1}/${total}`;
+    mobileSceneName.textContent = SCENE_REGISTRY[activeIdx]?.label ?? manager.sceneNames[activeIdx] ?? '';
   }
   syncSceneButtons(0);
+
+  function setMobileSheetOpen(open: boolean): void {
+    mobileSceneSheet.classList.toggle('open', open);
+    mobileSceneSheet.setAttribute('aria-hidden', String(!open));
+    mobileSceneTrigger.classList.toggle('open', open);
+    mobileSceneTrigger.setAttribute('aria-expanded', String(open));
+  }
+
+  function selectSceneByIndex(idx: number, manual = true): void {
+    if (Number.isNaN(idx) || idx < 0 || idx >= SCENE_REGISTRY.length) return;
+    manager.switchTo(idx, { manual });
+    syncSceneButtons(idx);
+    toast(`${idx + 1}. ${SCENE_REGISTRY[idx].label}`);
+  }
 
   sceneButtons.forEach((btn) => {
     btn.addEventListener('click', () => {
       const idx = Number(btn.getAttribute('data-scene'));
-      if (!Number.isNaN(idx)) {
-        manager.switchTo(idx, { manual: true });
-        syncSceneButtons(idx);
-        toast(`Scene ${idx + 1}: ${manager.sceneNames[idx]}`);
-      }
+      selectSceneByIndex(idx, true);
     });
   });
+
+  mobileSceneTiles.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-scene'));
+      selectSceneByIndex(idx, true);
+      setMobileSheetOpen(false);
+    });
+  });
+
+  mobileScenePrev.addEventListener('click', () => {
+    const total = SCENE_REGISTRY.length;
+    const prevIdx = (manager.activeIndexValue - 1 + total) % total;
+    selectSceneByIndex(prevIdx, true);
+  });
+
+  mobileSceneNext.addEventListener('click', () => {
+    const total = SCENE_REGISTRY.length;
+    const nextIdx = (manager.activeIndexValue + 1) % total;
+    selectSceneByIndex(nextIdx, true);
+  });
+
+  mobileSceneTrigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setMobileSheetOpen(!mobileSceneSheet.classList.contains('open'));
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!mobileSceneSheet.classList.contains('open')) return;
+    const target = e.target as Node;
+    if (!mobileSceneSheet.contains(target) && !mobileSceneTrigger.contains(target)) {
+      setMobileSheetOpen(false);
+    }
+  });
+
+  manager.onSceneLoadStateChanged = (loading, label) => {
+    if (loading && label) {
+      mobileSceneName.textContent = `${label}…`;
+    } else {
+      syncSceneButtons(manager.activeIndexValue);
+    }
+  };
 
   const prevOnSceneChanged = manager.onSceneChanged;
   manager.onSceneChanged = (sc) => {
@@ -193,27 +282,43 @@ async function boot(): Promise<void> {
     syncSceneButtons(manager.activeIndexValue);
   };
 
+  function syncAutoRotateButtons(on: boolean): void {
+    autoSceneBtn.classList.toggle('active', on);
+    mobileAutoBtn.classList.toggle('active', on);
+  }
+
   const prevOnAutoRotateChanged = manager.onAutoRotateChanged;
   manager.onAutoRotateChanged = (on) => {
     prevOnAutoRotateChanged?.(on);
-    autoSceneBtn.classList.toggle('active', on);
+    syncAutoRotateButtons(on);
   };
 
-  autoSceneBtn.addEventListener('click', () => {
+  const toggleAutoRotate = () => {
     const nextState = !manager.autoRotate;
     manager.setAutoRotate(nextState);
-    autoSceneBtn.classList.toggle('active', nextState);
+    syncAutoRotateButtons(nextState);
     toast(`Auto Scene: ${nextState ? 'ON' : 'OFF'}`);
-  });
+  };
+  autoSceneBtn.addEventListener('click', toggleAutoRotate);
+  mobileAutoBtn.addEventListener('click', toggleAutoRotate);
 
   function updateTrackDetails(name: string, analysis?: SongAnalysis | null): void {
     dockTrackTitle.textContent = name || 'Ожидание аудио…';
+    dockRestoreLabel.textContent = name ? name : 'Панель плеера';
     if (analysis) {
       badgeBpm.textContent = `${analysis.tempo.bpm.toFixed(1)} BPM`;
     } else {
       badgeBpm.textContent = live?.isPlaying ? 'LIVE' : '';
     }
   }
+
+  // Dedicated Bottom Dock Slide-Down Hide / Restore Toggle
+  function setDockCollapsed(collapsed: boolean): void {
+    playerDock.classList.toggle('is-collapsed', collapsed);
+    dockRestoreBtn.classList.toggle('visible', collapsed);
+  }
+  dockCollapseBtn.addEventListener('click', () => setDockCollapsed(true));
+  dockRestoreBtn.addEventListener('click', () => setDockCollapsed(false));
 
   // Playlist Manager & UI Setup
   const playlistManager = new PlaylistManager();
@@ -249,24 +354,33 @@ async function boot(): Promise<void> {
   }
 
   async function maybeRunDirector(analysis: SongAnalysis): Promise<void> {
-    const { apiKey, enabled, model } = panel.director;
+    const enabled =
+      panel?.director.enabled ??
+      (localStorage.getItem('personance.directorEnabled') ??
+        localStorage.getItem('resonance.directorEnabled')) === 'true';
+    const apiKey =
+      panel?.director.apiKey ??
+      localStorage.getItem('personance.anthropicKey') ??
+      localStorage.getItem('resonance.anthropicKey') ??
+      '';
     if (!enabled || !apiKey) return;
+    const p = await ensureDevPanel();
     const token = ++directorToken;
-    panel.setDirectorStatus('thinking…');
+    p.setDirectorStatus('thinking…');
     try {
       const plan = await requestDirectorPlan(analysis, trackName, manager.sceneSpecs, {
-        apiKey,
-        model,
+        apiKey: p.director.apiKey,
+        model: p.director.model,
       });
       if (token !== directorToken) return;
       manager.applyDirectorPlan(plan);
       debugState.directorMood = plan.mood;
       const tok = plan.usage ? ` · ${plan.usage.input}→${plan.usage.output} tok` : '';
-      panel.setDirectorStatus(`✓ ${plan.mood}${tok}`);
-      panel.setDirectorPlan(plan);
+      p.setDirectorStatus(`✓ ${plan.mood}${tok}`);
+      p.setDirectorPlan(plan);
     } catch (err) {
       if (token === directorToken) {
-        panel.setDirectorStatus(`error: ${err instanceof Error ? err.message.slice(0, 60) : err}`);
+        p.setDirectorStatus(`error: ${err instanceof Error ? err.message.slice(0, 60) : err}`);
       }
     }
   }
@@ -299,11 +413,20 @@ async function boot(): Promise<void> {
     }
   }
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  function handleViewportResize(): void {
+    const w = window.visualViewport?.width ?? window.innerWidth;
+    const h = window.visualViewport?.height ?? window.innerHeight;
+    const aspect = w / Math.max(1, h);
+    camera.fov = aspect < 0.85 ? 70 : 60;
+    camera.aspect = aspect;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+    const nowMobile = detectMobileDevice();
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, nowMobile ? 1.5 : 2));
+    renderer.setSize(w, h);
+  }
+  window.addEventListener('resize', handleViewportResize);
+  window.addEventListener('orientationchange', () => setTimeout(handleViewportResize, 120));
+  window.visualViewport?.addEventListener('resize', handleViewportResize);
 
   let currentTrackId: string | null = 'demo-track-adventures';
 
@@ -395,8 +518,9 @@ async function boot(): Promise<void> {
             refined.palette = palette ? { ...palette, coverArtUrl: null } : null;
             player?.attachAnalysis(refined);
             debugState.analysis = refined;
+            lastAnalysis = refined;
             void cacheAnalysis(refined);
-            panel.setAnalysis(trackName, refined);
+            panel?.setAnalysis(trackName, refined);
             populateSectionMarkers(refined);
             setStatus('');
           },
@@ -408,6 +532,7 @@ async function boot(): Promise<void> {
       }
       debugState.analysisMs = performance.now() - t0;
       debugState.analysis = analysis;
+      lastAnalysis = analysis;
       player.attachAnalysis(analysis);
       manager.setIntensity(analysis.emotion?.arousal ?? 0.5);
 
@@ -435,7 +560,7 @@ async function boot(): Promise<void> {
       trackName = name;
       document.title = `Personance — ${trackName}`;
       updateTrackDetails(trackName, analysis);
-      panel.setAnalysis(trackName, analysis);
+      panel?.setAnalysis(trackName, analysis);
       manager.clearDirectorPlan();
       void maybeRunDirector(analysis);
     } catch (err) {
@@ -572,12 +697,14 @@ async function boot(): Promise<void> {
     }
   });
 
-  // Interactive Timeline Scrubber
+  // Interactive Touch & Mouse Timeline Scrubber (Pointer Events)
   let isSeeking = false;
-  function handleTimelineSeek(e: MouseEvent): void {
+  let activeSeekPointerId: number | null = null;
+  function handleTimelineSeek(clientX: number): void {
     if (!player || !player.duration) return;
     const rect = timelineContainer.getBoundingClientRect();
-    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    if (rect.width <= 0) return;
+    const pct = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const targetSec = pct * player.duration;
     player.seek(targetSec);
     timelineFill.style.width = `${pct * 100}%`;
@@ -585,16 +712,61 @@ async function boot(): Promise<void> {
     timeCurrent.textContent = formatTime(targetSec);
   }
 
-  timelineContainer.addEventListener('mousedown', (e) => {
+  timelineContainer.addEventListener('pointerdown', (e) => {
     isSeeking = true;
-    handleTimelineSeek(e);
+    activeSeekPointerId = e.pointerId;
+    timelineContainer.classList.add('is-seeking');
+    timelineContainer.setPointerCapture?.(e.pointerId);
+    handleTimelineSeek(e.clientX);
   });
-  window.addEventListener('mousemove', (e) => {
-    if (isSeeking) handleTimelineSeek(e);
+  timelineContainer.addEventListener('pointermove', (e) => {
+    if (isSeeking && (activeSeekPointerId === null || e.pointerId === activeSeekPointerId)) {
+      handleTimelineSeek(e.clientX);
+    }
   });
-  window.addEventListener('mouseup', () => {
-    isSeeking = false;
-  });
+  const endSeek = (e: PointerEvent) => {
+    if (activeSeekPointerId === null || e.pointerId === activeSeekPointerId) {
+      isSeeking = false;
+      activeSeekPointerId = null;
+      timelineContainer.classList.remove('is-seeking');
+    }
+  };
+  timelineContainer.addEventListener('pointerup', endSeek);
+  timelineContainer.addEventListener('pointercancel', endSeek);
+
+  // Horizontal Touch Swipe on Canvas to switch scenes smoothly on mobile
+  let swipeStartX = 0;
+  let swipeStartY = 0;
+  let swipeTracking = false;
+  renderer.domElement.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length !== 1) {
+        swipeTracking = false;
+        return;
+      }
+      swipeStartX = e.touches[0].clientX;
+      swipeStartY = e.touches[0].clientY;
+      swipeTracking = true;
+    },
+    { passive: true },
+  );
+  renderer.domElement.addEventListener(
+    'touchend',
+    (e) => {
+      if (!swipeTracking || e.changedTouches.length === 0) return;
+      swipeTracking = false;
+      const dx = e.changedTouches[0].clientX - swipeStartX;
+      const dy = e.changedTouches[0].clientY - swipeStartY;
+      if (Math.abs(dx) > 64 && Math.abs(dx) > Math.abs(dy) * 1.45) {
+        const total = SCENE_REGISTRY.length;
+        const delta = dx < 0 ? 1 : -1;
+        const targetIdx = (manager.activeIndexValue + delta + total) % total;
+        selectSceneByIndex(targetIdx, true);
+      }
+    },
+    { passive: true },
+  );
 
   // Volume Slider & Mute
   let lastVolume = 1;
@@ -624,8 +796,10 @@ async function boot(): Promise<void> {
 
   // Top Tools & Modals
   devPanelBtn.addEventListener('click', () => {
-    const isOpen = panel.toggle();
-    toast(isOpen ? 'Parameter Tuning Panel Open' : 'Tuning Panel Closed');
+    void ensureDevPanel().then((p) => {
+      const isOpen = p.toggle();
+      toast(isOpen ? 'Панель параметров открыта' : 'Панель параметров закрыта');
+    });
   });
   const hudOpenHelpBtn = document.getElementById('hud-open-help-btn');
   hudOpenHelpBtn?.addEventListener('click', () => shortcutsModal.classList.add('open'));
@@ -652,15 +826,17 @@ async function boot(): Promise<void> {
     document.body.classList.remove('controls-hidden');
     clearTimeout(hideTimer);
     const active = (live?.isPlaying ?? false) || (player?.isPlaying ?? false);
-    if (active && !uiLoading) {
+    if (active && !uiLoading && !mobileSceneSheet.classList.contains('open') && !isSeeking) {
       hideTimer = window.setTimeout(() => {
-        document.body.classList.add('controls-hidden');
-      }, 4000);
+        if (!mobileSceneSheet.classList.contains('open') && !isSeeking) {
+          document.body.classList.add('controls-hidden');
+        }
+      }, 4500);
     }
   }
   window.addEventListener('mousemove', resetControlsTimer);
   window.addEventListener('mousedown', resetControlsTimer);
-  window.addEventListener('touchstart', resetControlsTimer);
+  window.addEventListener('touchstart', resetControlsTimer, { passive: true });
   window.addEventListener('keydown', resetControlsTimer);
 
   // Global Keyboard Shortcuts
@@ -725,13 +901,15 @@ async function boot(): Promise<void> {
     if (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') {
       const next = !manager.autoRotate;
       manager.setAutoRotate(next);
-      autoSceneBtn.classList.toggle('active', next);
+      syncAutoRotateButtons(next);
       toast(`Авто-ротация сцен: ${next ? 'ВКЛ' : 'ВЫКЛ'}`);
     }
     if (e.code === 'Backquote' || e.key === '`' || e.key === 'ё' || e.key === 'Ё' || e.key === '~') {
       e.preventDefault();
-      const isOpen = panel.toggle();
-      toast(isOpen ? 'Панель параметров [ ` ]: Открыта' : 'Панель параметров [ ` ]: Закрыта');
+      void ensureDevPanel().then((p) => {
+        const isOpen = p.toggle();
+        toast(isOpen ? 'Панель параметров [ ` ]: Открыта' : 'Панель параметров [ ` ]: Закрыта');
+      });
     }
     if (e.key === '?' || (e.shiftKey && e.key === '/')) {
       shortcutsModal.classList.toggle('open');
@@ -852,7 +1030,7 @@ async function boot(): Promise<void> {
     }
 
     fpsSmooth += (1 / Math.max(dt, 1e-4) - fpsSmooth) * 0.05;
-    panel.update(fpsSmooth, manager.signals, dt);
+    panel?.update(fpsSmooth, manager.signals, dt);
 
     try {
       post.render();

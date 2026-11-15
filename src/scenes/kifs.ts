@@ -61,23 +61,13 @@ export class Kifs implements VisualScene {
   private burst = 0;
   private time = 0;
 
-  private rt: THREE.RenderTarget;
+  private rt: THREE.RenderTarget | null = null;
   private fboScene = new THREE.Scene();
   private fboCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
   private marchQuad: THREE.Mesh | null = null;
   private displayMesh: THREE.Mesh | null = null;
   private displayRead = texture(new THREE.Texture());
   private ctx: SceneContext | null = null;
-
-  constructor() {
-    this.rt = new THREE.RenderTarget(RT_W, RT_H, {
-      type: THREE.HalfFloatType,
-      format: THREE.RGBAFormat,
-      minFilter: THREE.LinearFilter,
-      magFilter: THREE.LinearFilter,
-      depthBuffer: false,
-    });
-  }
 
   private paramValues: Record<string, number> = {};
 
@@ -114,11 +104,22 @@ export class Kifs implements VisualScene {
 
   init(ctx: SceneContext): void {
     this.ctx = ctx;
+    const scale = ctx.isMobile ? 0.5 : 1;
+    const rtW = Math.round(RT_W * scale);
+    const rtH = Math.round(RT_H * scale);
+    const marchSteps = ctx.isMobile ? 56 : MARCH_STEPS;
+    this.rt = new THREE.RenderTarget(rtW, rtH, {
+      type: THREE.HalfFloatType,
+      format: THREE.RGBAFormat,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: false,
+    });
 
     const material = new THREE.MeshBasicNodeMaterial();
     material.colorNode = Fn(() => {
       // Virtual camera ray from the fbo quad's uv.
-      const ndc = uv().mul(2).sub(vec2(1, 1)).mul(vec2(RT_W / RT_H, 1));
+      const ndc = uv().mul(2).sub(vec2(1, 1)).mul(vec2(rtW / rtH, 1));
       const ro = vec3(this.uCamPos.x, this.uCamPos.y, this.uCamPos.z);
       const fwd = normalize(ro.negate());
       const right = normalize(vec3(fwd.z, 0, fwd.x.negate()));
@@ -165,7 +166,7 @@ export class Kifs implements VisualScene {
       const steps = float(0).toVar();
       const trapOut = float(0).toVar();
       const hit = float(0).toVar();
-      Loop({ start: 0, end: MARCH_STEPS, type: 'int' }, () => {
+      Loop({ start: 0, end: marchSteps, type: 'int' }, () => {
         const pos = ro.add(rd.mul(t));
         const m = map(pos);
         trapOut.assign(m.trap);
@@ -181,7 +182,7 @@ export class Kifs implements VisualScene {
       });
 
       // Iteration-count glow doubles as cheap AO at the surface.
-      const edge = steps.div(MARCH_STEPS);
+      const edge = steps.div(marchSteps);
       const trapT = smoothstep(0.0, 2.2, trapOut);
       const surface = mix(this.uLow, this.uHigh, trapT);
       const lit = mix(surface.mul(0.15), surface, float(1).sub(edge).pow(2));
@@ -214,7 +215,7 @@ export class Kifs implements VisualScene {
 
   update(_f: FrameFeatures, dt: number): void {
     const ctx = this.ctx;
-    if (!ctx || !this.displayMesh?.visible || !this.marchQuad) return;
+    if (!ctx || !this.displayMesh?.visible || !this.marchQuad || !this.rt) return;
     this.time += dt;
 
     // Fold angle oscillates inside the known-good band — unbounded drift
@@ -252,11 +253,19 @@ export class Kifs implements VisualScene {
   }
 
   dispose(): void {
+    if (this.marchQuad) {
+      this.fboScene.remove(this.marchQuad);
+      this.marchQuad.geometry.dispose();
+      (this.marchQuad.material as THREE.Material).dispose();
+      this.marchQuad = null;
+    }
     if (this.displayMesh && this.ctx) {
       this.ctx.scene.remove(this.displayMesh);
       this.displayMesh.geometry.dispose();
       (this.displayMesh.material as THREE.Material).dispose();
+      this.displayMesh = null;
     }
-    this.rt.dispose();
+    this.rt?.dispose();
+    this.rt = null;
   }
 }

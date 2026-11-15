@@ -135,7 +135,8 @@ export class Terrain implements VisualScene {
     c = mix(c, mix(color('#050510'), this.uLow, 0.55), haze);
     material.colorNode = c.mul(this.uFade);
 
-    const geometry = new THREE.PlaneGeometry(SIZE, SIZE, SEGMENTS, SEGMENTS);
+    const segments = ctx.isMobile ? 192 : SEGMENTS;
+    const geometry = new THREE.PlaneGeometry(SIZE, SIZE, segments, segments);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.y = -4;
@@ -369,6 +370,21 @@ export class Terrain implements VisualScene {
       }
       this.mesh?.geometry.dispose();
       (this.mesh?.material as THREE.Material | undefined)?.dispose();
+      this.sky?.geometry.dispose();
+      (this.sky?.material as THREE.Material | undefined)?.dispose();
+      this.ship?.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((m) => m.dispose());
+          } else {
+            (child.material as THREE.Material).dispose();
+          }
+        }
+      });
+      this.mesh = null;
+      this.sky = null;
+      this.ship = null;
     }
   }
 }

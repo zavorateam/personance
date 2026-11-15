@@ -6,6 +6,8 @@ export interface SceneContext {
   renderer: THREE.WebGPURenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
+  isMobile: boolean;
+  qualityScale: number;
 }
 
 export interface ParamSpec {
